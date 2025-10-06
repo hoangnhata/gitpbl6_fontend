@@ -102,6 +102,42 @@ export function deleteUser(userId) {
   });
 }
 
+// PUT /api/admin/users/{id}/status
+export function updateUserStatus(userId, enabled) {
+  if (!userId) throw new Error("userId is required");
+  if (enabled === undefined) throw new Error("enabled status is required");
+  return jsonFetch(
+    `/admin/users/${encodeURIComponent(userId)}/status?enabled=${enabled}`,
+    {
+      method: "PUT",
+    }
+  );
+}
+
+// PUT /api/admin/users/{id}/roles
+export function updateUserRoles(userId, roles) {
+  if (!userId) throw new Error("userId is required");
+  if (!roles) throw new Error("roles are required");
+  return jsonFetch(`/admin/users/${encodeURIComponent(userId)}/roles`, {
+    method: "PUT",
+    body: JSON.stringify({ roles }),
+  });
+}
+
+// POST /api/admin/users/bulk-disable
+export function bulkDisableUsers(userIds, reason = "Policy violation") {
+  if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
+    throw new Error("userIds array is required");
+  }
+  return jsonFetch(
+    `/admin/users/bulk-disable?reason=${encodeURIComponent(reason)}`,
+    {
+      method: "POST",
+      body: JSON.stringify(userIds),
+    }
+  );
+}
+
 // ===== MOVIE MANAGEMENT =====
 
 // GET /api/admin/movies
@@ -140,8 +176,20 @@ export function createMovie(movieData) {
   if (movieData.ageRating) formData.append("ageRating", movieData.ageRating);
   if (movieData.trailerUrl) formData.append("trailerUrl", movieData.trailerUrl);
   if (movieData.videoUrl) formData.append("videoUrl", movieData.videoUrl);
+  if (movieData.imdbRating)
+    formData.append("imdbRating", String(movieData.imdbRating));
+  if (movieData.releaseDate)
+    formData.append("releaseDate", movieData.releaseDate);
+  if (movieData.maxDownloadQuality)
+    formData.append("maxDownloadQuality", movieData.maxDownloadQuality);
   if (movieData.isAvailable !== undefined)
     formData.append("isAvailable", String(movieData.isAvailable));
+  if (movieData.isFeatured !== undefined)
+    formData.append("isFeatured", String(movieData.isFeatured));
+  if (movieData.isTrending !== undefined)
+    formData.append("isTrending", String(movieData.isTrending));
+  if (movieData.downloadEnabled !== undefined)
+    formData.append("downloadEnabled", String(movieData.downloadEnabled));
 
   // Add file fields
   if (movieData.poster) formData.append("poster", movieData.poster);
@@ -169,6 +217,331 @@ export function deleteMovie(movieId) {
   });
 }
 
+// PUT /api/admin/movies/{id}/availability
+export function toggleMovieAvailability(movieId, available) {
+  if (!movieId) throw new Error("movieId is required");
+  if (available === undefined) throw new Error("available status is required");
+  return jsonFetch(
+    `/admin/movies/${encodeURIComponent(
+      movieId
+    )}/availability?available=${available}`,
+    {
+      method: "PUT",
+    }
+  );
+}
+
+// POST /api/admin/movies/{id}/poster
+export function uploadMoviePoster(movieId, posterFile) {
+  if (!movieId) throw new Error("movieId is required");
+  if (!posterFile) throw new Error("posterFile is required");
+
+  const formData = new FormData();
+  formData.append("poster", posterFile);
+
+  return formDataFetch(
+    `/admin/movies/${encodeURIComponent(movieId)}/poster`,
+    formData,
+    {
+      method: "POST",
+    }
+  );
+}
+
+// POST /api/admin/movies/{id}/trailer
+export function uploadMovieTrailer(movieId, trailerFile) {
+  if (!movieId) throw new Error("movieId is required");
+  if (!trailerFile) throw new Error("trailerFile is required");
+
+  const formData = new FormData();
+  formData.append("trailer", trailerFile);
+
+  return formDataFetch(
+    `/admin/movies/${encodeURIComponent(movieId)}/trailer`,
+    formData,
+    {
+      method: "POST",
+    }
+  );
+}
+
+// POST /api/admin/movies/{id}/subtitle
+export function uploadMovieSubtitle(movieId, subtitleFile) {
+  if (!movieId) throw new Error("movieId is required");
+  if (!subtitleFile) throw new Error("subtitleFile is required");
+
+  const formData = new FormData();
+  formData.append("subtitle", subtitleFile);
+
+  return formDataFetch(
+    `/admin/movies/${encodeURIComponent(movieId)}/subtitle`,
+    formData,
+    {
+      method: "POST",
+    }
+  );
+}
+
+// ===== COUNTRY MANAGEMENT =====
+
+// GET /api/admin/countries
+export function getCountries() {
+  return jsonFetch("/admin/countries", { method: "GET" });
+}
+
+// GET /api/admin/countries/{id}
+export function getCountryById(countryId) {
+  if (!countryId) throw new Error("countryId is required");
+  return jsonFetch(`/admin/countries/${encodeURIComponent(countryId)}`, {
+    method: "GET",
+  });
+}
+
+// POST /api/admin/countries
+export function createCountry(countryData) {
+  if (!countryData) throw new Error("countryData is required");
+
+  const formData = new FormData();
+  if (countryData.name) formData.append("name", countryData.name);
+  if (countryData.flag) formData.append("flag", countryData.flag);
+  if (countryData.isActive !== undefined)
+    formData.append("isActive", String(countryData.isActive));
+
+  return formDataFetch("/admin/countries", formData, {
+    method: "POST",
+  });
+}
+
+// PUT /api/admin/countries/{id}
+export function updateCountry(countryId, countryData) {
+  if (!countryId) throw new Error("countryId is required");
+  if (!countryData) throw new Error("countryData is required");
+
+  const formData = new FormData();
+  if (countryData.name) formData.append("name", countryData.name);
+  if (countryData.flag) formData.append("flag", countryData.flag);
+  if (countryData.isActive !== undefined)
+    formData.append("isActive", String(countryData.isActive));
+
+  return formDataFetch(
+    `/admin/countries/${encodeURIComponent(countryId)}`,
+    formData,
+    {
+      method: "PUT",
+    }
+  );
+}
+
+// DELETE /api/admin/countries/{id}
+export function deleteCountry(countryId) {
+  if (!countryId) throw new Error("countryId is required");
+  return jsonFetch(`/admin/countries/${encodeURIComponent(countryId)}`, {
+    method: "DELETE",
+  });
+}
+
+// PUT /api/admin/countries/{id}/activate
+export function activateCountry(countryId) {
+  if (!countryId) throw new Error("countryId is required");
+  return jsonFetch(
+    `/admin/countries/${encodeURIComponent(countryId)}/activate`,
+    {
+      method: "PUT",
+    }
+  );
+}
+
+// PUT /api/admin/countries/{id}/deactivate
+export function deactivateCountry(countryId) {
+  if (!countryId) throw new Error("countryId is required");
+  return jsonFetch(
+    `/admin/countries/${encodeURIComponent(countryId)}/deactivate`,
+    {
+      method: "PUT",
+    }
+  );
+}
+
+// ===== ACTOR MANAGEMENT =====
+
+// GET /api/actors?page=&size=
+export function getActors(page = 0, size = 20) {
+  const params = new URLSearchParams({
+    page: String(page),
+    size: String(size),
+  });
+  return jsonFetch(`/actors?${params.toString()}`, { method: "GET" });
+}
+
+// GET /api/actors/{id}
+export function getActorById(actorId) {
+  if (!actorId) throw new Error("actorId is required");
+  return jsonFetch(`/actors/${encodeURIComponent(actorId)}`, { method: "GET" });
+}
+
+// POST /api/admin/actors/form (multipart)
+export function createActor(actorData) {
+  if (!actorData) throw new Error("actorData is required");
+  const formData = new FormData();
+  if (actorData.name) formData.append("name", actorData.name);
+  if (actorData.dob) formData.append("dob", actorData.dob);
+  if (actorData.description)
+    formData.append("description", actorData.description);
+  if (actorData.file) formData.append("file", actorData.file);
+  return formDataFetch(`/admin/actors/form`, formData, { method: "POST" });
+}
+
+// PUT /api/admin/actors/{id}
+export function updateActor(actorId, actorData) {
+  if (!actorId) throw new Error("actorId is required");
+  if (!actorData) throw new Error("actorData is required");
+  return jsonFetch(`/admin/actors/${encodeURIComponent(actorId)}`, {
+    method: "PUT",
+    body: JSON.stringify(actorData),
+  });
+}
+
+// DELETE /api/admin/actors/{id}
+export function deleteActor(actorId) {
+  if (!actorId) throw new Error("actorId is required");
+  return jsonFetch(`/admin/actors/${encodeURIComponent(actorId)}`, {
+    method: "DELETE",
+  });
+}
+
+// ===== DIRECTOR MANAGEMENT =====
+
+// GET /api/directors?page=&size=&sort=&direction=
+export function getDirectors(
+  page = 0,
+  size = 10,
+  sort = "name",
+  direction = "asc"
+) {
+  const params = new URLSearchParams({
+    page: String(page),
+    size: String(size),
+    sort: String(sort),
+    direction: String(direction),
+  });
+  return jsonFetch(`/directors?${params.toString()}`, { method: "GET" });
+}
+
+// GET /api/directors/all
+export function getAllDirectors() {
+  return jsonFetch(`/directors/all`, { method: "GET" });
+}
+
+// GET /api/directors/{id}
+export function getDirectorById(directorId) {
+  if (!directorId) throw new Error("directorId is required");
+  return jsonFetch(`/directors/${encodeURIComponent(directorId)}`, {
+    method: "GET",
+  });
+}
+
+// POST /api/directors
+export function createDirector(directorData) {
+  if (!directorData) throw new Error("directorData is required");
+  const formData = new FormData();
+  if (directorData.name) formData.append("name", directorData.name);
+  if (directorData.biography)
+    formData.append("biography", directorData.biography);
+  if (directorData.birthDate)
+    formData.append("birthDate", directorData.birthDate);
+  if (directorData.nationality)
+    formData.append("nationality", directorData.nationality);
+  if (directorData.photo) formData.append("photo", directorData.photo);
+  return formDataFetch(`/directors`, formData, { method: "POST" });
+}
+
+// PUT /api/directors/{id}
+export function updateDirector(directorId, directorData) {
+  if (!directorId) throw new Error("directorId is required");
+  if (!directorData) throw new Error("directorData is required");
+  return jsonFetch(`/directors/${encodeURIComponent(directorId)}`, {
+    method: "PUT",
+    body: JSON.stringify(directorData),
+  });
+}
+
+// DELETE /api/directors/{id}
+export function deleteDirector(directorId) {
+  if (!directorId) throw new Error("directorId is required");
+  return jsonFetch(`/directors/${encodeURIComponent(directorId)}`, {
+    method: "DELETE",
+  });
+}
+
+// ===== CATEGORY MANAGEMENT =====
+
+// GET /api/admin/categories?page=&size=
+export function getCategories(page = 0, size = 20) {
+  const params = new URLSearchParams({
+    page: String(page),
+    size: String(size),
+  });
+  return jsonFetch(`/admin/categories?${params.toString()}`, { method: "GET" });
+}
+
+// GET /api/admin/categories/{name}
+export function getCategoryByName(name) {
+  if (!name) throw new Error("name is required");
+  return jsonFetch(`/admin/categories/${encodeURIComponent(name)}`, {
+    method: "GET",
+  });
+}
+
+// POST /api/admin/categories
+export function createCategory(categoryData) {
+  if (!categoryData) throw new Error("categoryData is required");
+  return jsonFetch(`/admin/categories`, {
+    method: "POST",
+    body: JSON.stringify(categoryData),
+  });
+}
+
+// PUT /api/admin/categories/{name}
+export function updateCategory(name, categoryData) {
+  if (!name) throw new Error("name is required");
+  if (!categoryData) throw new Error("categoryData is required");
+  return jsonFetch(`/admin/categories/${encodeURIComponent(name)}`, {
+    method: "PUT",
+    body: JSON.stringify(categoryData),
+  });
+}
+
+// DELETE /api/admin/categories/{name}
+export function deleteCategory(name) {
+  if (!name) throw new Error("name is required");
+  return jsonFetch(`/admin/categories/${encodeURIComponent(name)}`, {
+    method: "DELETE",
+  });
+}
+
+// POST /api/admin/categories/{name}/assign/{movieId}
+export function assignMovieToCategory(name, movieId) {
+  if (!name) throw new Error("name is required");
+  if (!movieId) throw new Error("movieId is required");
+  return jsonFetch(
+    `/admin/categories/${encodeURIComponent(name)}/assign/${encodeURIComponent(
+      movieId
+    )}`,
+    { method: "POST" }
+  );
+}
+
+// DELETE /api/admin/categories/{name}/assign/{movieId}
+export function unassignMovieFromCategory(name, movieId) {
+  if (!name) throw new Error("name is required");
+  if (!movieId) throw new Error("movieId is required");
+  return jsonFetch(
+    `/admin/categories/${encodeURIComponent(name)}/assign/${encodeURIComponent(
+      movieId
+    )}`,
+    { method: "DELETE" }
+  );
+}
 // ===== STATISTICS =====
 
 // GET /api/admin/dashboard
@@ -227,6 +600,9 @@ export default {
   getUserById,
   updateUser,
   deleteUser,
+  updateUserStatus,
+  updateUserRoles,
+  bulkDisableUsers,
 
   // Movie management
   getMovies,
@@ -234,6 +610,43 @@ export default {
   createMovie,
   updateMovie,
   deleteMovie,
+  toggleMovieAvailability,
+  uploadMoviePoster,
+  uploadMovieTrailer,
+  uploadMovieSubtitle,
+
+  // Country management
+  getCountries,
+  getCountryById,
+  createCountry,
+  updateCountry,
+  deleteCountry,
+  activateCountry,
+  deactivateCountry,
+
+  // Actor management
+  getActors,
+  getActorById,
+  createActor,
+  updateActor,
+  deleteActor,
+
+  // Director management
+  getDirectors,
+  getAllDirectors,
+  getDirectorById,
+  createDirector,
+  updateDirector,
+  deleteDirector,
+
+  // Category management
+  getCategories,
+  getCategoryByName,
+  createCategory,
+  updateCategory,
+  deleteCategory,
+  assignMovieToCategory,
+  unassignMovieFromCategory,
 
   // Statistics
   getAdminStatistics,
