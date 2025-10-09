@@ -158,6 +158,12 @@ export function getMovieById(movieId) {
   });
 }
 
+// PUBLIC: GET /api/movies/{id}
+export function getPublicMovieById(movieId) {
+  if (!movieId) throw new Error("movieId is required");
+  return jsonFetch(`/movies/${encodeURIComponent(movieId)}`, { method: "GET" });
+}
+
 // POST /api/movies/create-form (multipart form data)
 export function createMovie(movieData) {
   if (!movieData) throw new Error("movieData is required");
@@ -170,7 +176,21 @@ export function createMovie(movieData) {
   if (movieData.year) formData.append("year", String(movieData.year));
   if (movieData.categories) formData.append("categories", movieData.categories);
   if (movieData.actors) formData.append("actors", movieData.actors);
-  if (movieData.directors) formData.append("directors", movieData.directors);
+  if (movieData.directors) {
+    formData.append("directors", movieData.directors);
+    // Also provide singular directorName if backend expects it
+    try {
+      const firstDirector = String(movieData.directors)
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)[0];
+      if (firstDirector) formData.append("directorName", firstDirector);
+    } catch (_) {
+      // Ignore parsing errors
+    }
+  }
+  if (movieData.directorName)
+    formData.append("directorName", movieData.directorName);
   if (movieData.country) formData.append("country", movieData.country);
   if (movieData.language) formData.append("language", movieData.language);
   if (movieData.ageRating) formData.append("ageRating", movieData.ageRating);
@@ -207,6 +227,67 @@ export function updateMovie(movieId, movieData) {
     method: "PUT",
     body: JSON.stringify(movieData),
   });
+}
+
+// PUT /api/admin/movies/{id} (with FormData support)
+export function updateMovieWithFormData(movieId, movieData) {
+  if (!movieId) throw new Error("movieId is required");
+  if (!movieData) throw new Error("movieData is required");
+
+  const formData = new FormData();
+
+  // Add text fields
+  if (movieData.title) formData.append("title", movieData.title);
+  if (movieData.synopsis) formData.append("synopsis", movieData.synopsis);
+  if (movieData.year) formData.append("year", String(movieData.year));
+  if (movieData.categories) formData.append("categories", movieData.categories);
+  if (movieData.actors) formData.append("actors", movieData.actors);
+  if (movieData.directors) {
+    formData.append("directors", movieData.directors);
+    // Also provide singular directorName if backend expects it
+    try {
+      const firstDirector = String(movieData.directors)
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)[0];
+      if (firstDirector) formData.append("directorName", firstDirector);
+    } catch (_) {
+      // Ignore parsing errors
+    }
+  }
+  if (movieData.directorName)
+    formData.append("directorName", movieData.directorName);
+  if (movieData.country) formData.append("country", movieData.country);
+  if (movieData.language) formData.append("language", movieData.language);
+  if (movieData.ageRating) formData.append("ageRating", movieData.ageRating);
+  if (movieData.trailerUrl) formData.append("trailerUrl", movieData.trailerUrl);
+  if (movieData.videoUrl) formData.append("videoUrl", movieData.videoUrl);
+  if (movieData.imdbRating)
+    formData.append("imdbRating", String(movieData.imdbRating));
+  if (movieData.releaseDate)
+    formData.append("releaseDate", movieData.releaseDate);
+  if (movieData.maxDownloadQuality)
+    formData.append("maxDownloadQuality", movieData.maxDownloadQuality);
+  if (movieData.isAvailable !== undefined)
+    formData.append("isAvailable", String(movieData.isAvailable));
+  if (movieData.isFeatured !== undefined)
+    formData.append("isFeatured", String(movieData.isFeatured));
+  if (movieData.isTrending !== undefined)
+    formData.append("isTrending", String(movieData.isTrending));
+  if (movieData.downloadEnabled !== undefined)
+    formData.append("downloadEnabled", String(movieData.downloadEnabled));
+
+  // Add file fields
+  if (movieData.poster) formData.append("poster", movieData.poster);
+  if (movieData.thumbnail) formData.append("thumbnail", movieData.thumbnail);
+  if (movieData.video) formData.append("video", movieData.video);
+  if (movieData.trailer) formData.append("trailer", movieData.trailer);
+
+  return formDataFetch(
+    `/admin/movies/${encodeURIComponent(movieId)}`,
+    formData,
+    { method: "PUT" }
+  );
 }
 
 // DELETE /api/admin/movies/{id}
@@ -401,6 +482,27 @@ export function updateActor(actorId, actorData) {
   });
 }
 
+// PUT /api/admin/actors/{id} (multipart form data for image updates)
+export function updateActorWithFormData(actorId, actorData) {
+  if (!actorId) throw new Error("actorId is required");
+  if (!actorData) throw new Error("actorData is required");
+
+  const formData = new FormData();
+  if (actorData.name) formData.append("name", actorData.name);
+  if (actorData.dob) formData.append("dob", actorData.dob);
+  if (actorData.description)
+    formData.append("description", actorData.description);
+  if (actorData.file) formData.append("file", actorData.file);
+
+  return formDataFetch(
+    `/admin/actors/${encodeURIComponent(actorId)}`,
+    formData,
+    {
+      method: "PUT",
+    }
+  );
+}
+
 // DELETE /api/admin/actors/{id}
 export function deleteActor(actorId) {
   if (!actorId) throw new Error("actorId is required");
@@ -465,6 +567,30 @@ export function updateDirector(directorId, directorData) {
   });
 }
 
+// PUT /api/directors/{id} (multipart for photo updates)
+export function updateDirectorWithFormData(directorId, directorData) {
+  if (!directorId) throw new Error("directorId is required");
+  if (!directorData) throw new Error("directorData is required");
+
+  const formData = new FormData();
+  if (directorData.name) formData.append("name", directorData.name);
+  if (directorData.biography)
+    formData.append("biography", directorData.biography);
+  if (directorData.birthDate)
+    formData.append("birthDate", directorData.birthDate);
+  if (directorData.nationality)
+    formData.append("nationality", directorData.nationality);
+  if (directorData.photo) formData.append("photo", directorData.photo);
+
+  return formDataFetch(
+    `/directors/${encodeURIComponent(directorId)}`,
+    formData,
+    {
+      method: "PUT",
+    }
+  );
+}
+
 // DELETE /api/directors/{id}
 export function deleteDirector(directorId) {
   if (!directorId) throw new Error("directorId is required");
@@ -495,9 +621,16 @@ export function getCategoryByName(name) {
 // POST /api/admin/categories
 export function createCategory(categoryData) {
   if (!categoryData) throw new Error("categoryData is required");
-  return jsonFetch(`/admin/categories`, {
+  // Many backends (e.g., Spring @RequestParam) expect params instead of JSON body
+  const params = new URLSearchParams();
+  if (categoryData.name) params.append("name", categoryData.name);
+  if (categoryData.displayName)
+    params.append("displayName", categoryData.displayName);
+  if (categoryData.description)
+    params.append("description", categoryData.description);
+  if (categoryData.icon) params.append("icon", categoryData.icon);
+  return jsonFetch(`/admin/categories?${params.toString()}`, {
     method: "POST",
-    body: JSON.stringify(categoryData),
   });
 }
 
@@ -505,9 +638,21 @@ export function createCategory(categoryData) {
 export function updateCategory(name, categoryData) {
   if (!name) throw new Error("name is required");
   if (!categoryData) throw new Error("categoryData is required");
-  return jsonFetch(`/admin/categories/${encodeURIComponent(name)}`, {
+  // Support backends that expect request params rather than JSON
+  const params = new URLSearchParams();
+  // Current name (identifier)
+  params.append("name", name);
+  if (categoryData.displayName)
+    params.append("displayName", categoryData.displayName);
+  if (categoryData.description)
+    params.append("description", categoryData.description);
+  if (categoryData.icon) params.append("icon", categoryData.icon);
+  // Optionally allow renaming if provided via categoryData.name
+  if (categoryData.name && categoryData.name !== name) {
+    params.append("newName", categoryData.name);
+  }
+  return jsonFetch(`/admin/categories?${params.toString()}`, {
     method: "PUT",
-    body: JSON.stringify(categoryData),
   });
 }
 
@@ -594,6 +739,19 @@ export function getTrendingContent(period = "week") {
   });
 }
 
+// ===== DASHBOARD & STATISTICS (additional) =====
+
+// GET /api/admin/stats
+export function getAdminStats() {
+  return jsonFetch("/admin/stats", { method: "GET" });
+}
+
+// GET /api/admin/stats/monthly/{year}
+export function getMonthlyStats(year) {
+  const path = `/admin/stats/monthly/${encodeURIComponent(year)}`;
+  return jsonFetch(path, { method: "GET" });
+}
+
 export default {
   // User management
   getUsers,
@@ -609,11 +767,13 @@ export default {
   getMovieById,
   createMovie,
   updateMovie,
+  updateMovieWithFormData,
   deleteMovie,
   toggleMovieAvailability,
   uploadMoviePoster,
   uploadMovieTrailer,
   uploadMovieSubtitle,
+  getPublicMovieById,
 
   // Country management
   getCountries,
@@ -629,6 +789,7 @@ export default {
   getActorById,
   createActor,
   updateActor,
+  updateActorWithFormData,
   deleteActor,
 
   // Director management
@@ -637,6 +798,7 @@ export default {
   getDirectorById,
   createDirector,
   updateDirector,
+  updateDirectorWithFormData,
   deleteDirector,
 
   // Category management
@@ -660,4 +822,6 @@ export default {
   // Additional APIs
   getDashboardAnalytics,
   getTrendingContent,
+  getAdminStats,
+  getMonthlyStats,
 };

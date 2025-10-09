@@ -37,6 +37,7 @@ import {
   CardHeader,
   Stack,
   Tooltip,
+  Autocomplete,
 } from "@mui/material";
 import {
   Add as AddIcon,
@@ -458,7 +459,15 @@ function DirectorForm({ initialData, onSuccess, onCancel }) {
     setError("");
     try {
       if (initialData?.id) {
-        await adminAPI.updateDirector(initialData.id, formData);
+        // If a new photo is selected, use multipart update
+        if (photo) {
+          await adminAPI.updateDirectorWithFormData(initialData.id, {
+            ...formData,
+            photo,
+          });
+        } else {
+          await adminAPI.updateDirector(initialData.id, formData);
+        }
       } else {
         await adminAPI.createDirector({ ...formData, photo });
       }
@@ -515,26 +524,30 @@ function DirectorForm({ initialData, onSuccess, onCancel }) {
             onChange={handleChange("nationality")}
           />
         </Grid>
-        {!initialData?.id && (
-          <Grid item xs={12}>
-            <input
-              id="director-photo"
-              type="file"
-              accept="image/*"
-              style={{ display: "none" }}
-              onChange={handlePhoto}
-            />
-            <label htmlFor="director-photo">
-              <Button
-                variant="outlined"
-                component="span"
-                startIcon={<CloudUploadIcon />}
-              >
-                {photo ? photo.name : "Upload Photo"}
-              </Button>
-            </label>
-          </Grid>
-        )}
+
+        <Grid item xs={12}>
+          <input
+            id="director-photo"
+            type="file"
+            accept="image/*"
+            style={{ display: "none" }}
+            onChange={handlePhoto}
+          />
+          <label htmlFor="director-photo">
+            <Button
+              variant="outlined"
+              component="span"
+              startIcon={<CloudUploadIcon />}
+            >
+              {photo
+                ? photo.name
+                : initialData?.id
+                ? "Change Photo"
+                : "Upload Photo"}
+            </Button>
+          </label>
+        </Grid>
+
         <Grid item xs={12}>
           <Box sx={{ display: "flex", gap: 2, justifyContent: "flex-end" }}>
             <Button onClick={onCancel} disabled={submitting}>
@@ -1148,7 +1161,15 @@ function ActorForm({ initialData, onSuccess, onCancel }) {
     setError("");
     try {
       if (initialData?.id) {
-        await adminAPI.updateActor(initialData.id, formData);
+        // If a new avatar selected, use multipart endpoint
+        if (file) {
+          await adminAPI.updateActorWithFormData(initialData.id, {
+            ...formData,
+            file,
+          });
+        } else {
+          await adminAPI.updateActor(initialData.id, formData);
+        }
       } else {
         await adminAPI.createActor({ ...formData, file });
       }
@@ -1197,26 +1218,30 @@ function ActorForm({ initialData, onSuccess, onCancel }) {
             onChange={handleChange("description")}
           />
         </Grid>
-        {!initialData?.id && (
-          <Grid item xs={12}>
-            <input
-              id="actor-file"
-              type="file"
-              accept="image/*"
-              style={{ display: "none" }}
-              onChange={handleFile}
-            />
-            <label htmlFor="actor-file">
-              <Button
-                variant="outlined"
-                component="span"
-                startIcon={<CloudUploadIcon />}
-              >
-                {file ? file.name : "Upload Avatar"}
-              </Button>
-            </label>
-          </Grid>
-        )}
+
+        <Grid item xs={12}>
+          <input
+            id="actor-file"
+            type="file"
+            accept="image/*"
+            style={{ display: "none" }}
+            onChange={handleFile}
+          />
+          <label htmlFor="actor-file">
+            <Button
+              variant="outlined"
+              component="span"
+              startIcon={<CloudUploadIcon />}
+            >
+              {file
+                ? file.name
+                : initialData?.id
+                ? "Change Avatar"
+                : "Upload Avatar"}
+            </Button>
+          </label>
+        </Grid>
+
         <Grid item xs={12}>
           <Box sx={{ display: "flex", gap: 2, justifyContent: "flex-end" }}>
             <Button onClick={onCancel} disabled={submitting}>
@@ -1479,8 +1504,14 @@ function MovieViewForm({ movie, onClose }) {
   const loadMovieDetails = async () => {
     try {
       setLoading(true);
-      const response = await adminAPI.getMovieById(movie.id);
-      setMovieDetails(response);
+      // Prefer public endpoint for richer payload
+      let response = null;
+      try {
+        response = await adminAPI.getPublicMovieById(movie.id);
+      } catch (_) {
+        response = await adminAPI.getMovieById(movie.id);
+      }
+      setMovieDetails(response?.data || response);
     } catch (err) {
       setError(err.message || "Failed to load movie details");
     } finally {
@@ -1568,14 +1599,16 @@ function MovieViewForm({ movie, onClose }) {
                 Genres
               </Typography>
               <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
-                {movieDetails?.genres?.map((genre, index) => (
-                  <Chip
-                    key={index}
-                    label={genre}
-                    color="primary"
-                    variant="outlined"
-                  />
-                ))}
+                {(movieDetails?.genres || movieDetails?.categories || []).map(
+                  (g, index) => (
+                    <Chip
+                      key={index}
+                      label={g}
+                      color="primary"
+                      variant="outlined"
+                    />
+                  )
+                )}
               </Box>
             </Box>
 
@@ -1586,13 +1619,23 @@ function MovieViewForm({ movie, onClose }) {
               <Grid container spacing={2}>
                 <Grid item xs={6}>
                   <Typography variant="body2" color="text.secondary">
-                    <strong>Actors:</strong> {movieDetails?.actors?.join(", ")}
+                    <strong>Actors:</strong>{" "}
+                    {(movieDetails?.actors && movieDetails.actors.join(", ")) ||
+                      (movieDetails?.actorDetails &&
+                        movieDetails.actorDetails
+                          .map((a) => a?.name)
+                          .filter(Boolean)
+                          .join(", ")) ||
+                      ""}
                   </Typography>
                 </Grid>
                 <Grid item xs={6}>
                   <Typography variant="body2" color="text.secondary">
                     <strong>Directors:</strong>{" "}
-                    {movieDetails?.directors?.join(", ")}
+                    {(movieDetails?.directors &&
+                      movieDetails.directors.join(", ")) ||
+                      movieDetails?.directorName ||
+                      ""}
                   </Typography>
                 </Grid>
               </Grid>
@@ -1941,10 +1984,121 @@ function MovieCreationForm({
     poster: null,
     thumbnail: null,
     video: null,
+    trailer: null,
   });
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  // Lookup options for autocomplete fields
+  const [actorOptions, setActorOptions] = useState([]);
+  const [directorOptions, setDirectorOptions] = useState([]);
+  const [countryOptions, setCountryOptions] = useState([]);
+  const [categoryOptions, setCategoryOptions] = useState([]);
+
+  useEffect(() => {
+    const loadLookups = async () => {
+      try {
+        // Actors
+        try {
+          const a = await adminAPI.getActors(0, 50);
+          const aList = Array.isArray(a) ? a : a?.content || a?.data || [];
+          setActorOptions(aList.map((x) => x?.name || x).filter(Boolean));
+        } catch (_) {
+          setActorOptions([]);
+        }
+
+        // Directors
+        try {
+          let d = null;
+          try {
+            d = await adminAPI.getAllDirectors();
+          } catch {
+            d = await adminAPI.getDirectors(0, 50);
+          }
+          const dList = Array.isArray(d) ? d : d?.content || d?.data || [];
+          setDirectorOptions(dList.map((x) => x?.name || x).filter(Boolean));
+        } catch (_) {
+          setDirectorOptions([]);
+        }
+
+        // Countries
+        try {
+          const c = await adminAPI.getCountries();
+          const cList = Array.isArray(c) ? c : c?.content || c?.data || [];
+          setCountryOptions(cList.map((x) => x?.name || x).filter(Boolean));
+        } catch (_) {
+          setCountryOptions([]);
+        }
+
+        // Categories
+        try {
+          const cat = await adminAPI.getCategories(0, 100);
+          const catList = Array.isArray(cat)
+            ? cat
+            : cat?.content || cat?.data || [];
+          setCategoryOptions(
+            catList.map((x) => x?.name || x?.displayName || x).filter(Boolean)
+          );
+        } catch (_) {
+          setCategoryOptions([]);
+        }
+      } catch (_) {
+        // ignore; keep empty options
+      }
+    };
+    loadLookups();
+  }, []);
+
+  // When editing, fetch full movie details from public API so fields are prefilled
+  useEffect(() => {
+    const loadEditDetails = async () => {
+      if (!isEdit || !initialData?.id) return;
+      try {
+        let res = null;
+        try {
+          res = await adminAPI.getPublicMovieById(initialData.id);
+        } catch (_) {
+          res = await adminAPI.getMovieById(initialData.id);
+        }
+        const data = res?.data || res || {};
+        const categories = (data.categories || data.genres || []).filter(
+          Boolean
+        );
+        const actors =
+          data.actors && Array.isArray(data.actors)
+            ? data.actors
+            : (data.actorDetails || []).map((a) => a?.name).filter(Boolean);
+        const directors =
+          data.directors && Array.isArray(data.directors)
+            ? data.directors
+            : [data.directorName].filter(Boolean);
+        setFormData((prev) => ({
+          ...prev,
+          title: data.title ?? prev.title,
+          synopsis: data.synopsis ?? prev.synopsis,
+          year: data.year ?? prev.year,
+          categories: categories.join(","),
+          actors: actors.join(","),
+          directors: directors.join(","),
+          country: data.country ?? prev.country,
+          language: data.language ?? prev.language,
+          ageRating: data.ageRating ?? prev.ageRating,
+          imdbRating: data.imdbRating ?? prev.imdbRating,
+          releaseDate: data.releaseDate ?? prev.releaseDate,
+          maxDownloadQuality:
+            data.maxDownloadQuality ?? prev.maxDownloadQuality,
+          isAvailable: data.isAvailable ?? prev.isAvailable,
+          isFeatured: data.isFeatured ?? prev.isFeatured,
+          isTrending: data.isTrending ?? prev.isTrending,
+          downloadEnabled: data.downloadEnabled ?? prev.downloadEnabled,
+        }));
+      } catch (_) {
+        // ignore, fallback to existing minimal data
+      }
+    };
+    loadEditDetails();
+  }, [isEdit, initialData?.id]);
 
   const handleInputChange = (field) => (event) => {
     const value =
@@ -1971,7 +2125,8 @@ function MovieCreationForm({
       };
 
       if (isEdit && initialData?.id) {
-        await adminAPI.updateMovie(initialData.id, movieData);
+        // Use FormData for movie update to support file uploads
+        await adminAPI.updateMovieWithFormData(initialData.id, movieData);
       } else {
         await adminAPI.createMovie(movieData);
       }
@@ -2034,41 +2189,89 @@ function MovieCreationForm({
             </Grid>
 
             <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                label="Categories (comma-separated)"
-                value={formData.categories}
-                onChange={handleInputChange("categories")}
-                placeholder="drama,comedy,action"
+              <Autocomplete
+                multiple
+                options={
+                  actorOptions && Array.isArray(categoryOptions)
+                    ? categoryOptions
+                    : []
+                }
+                filterSelectedOptions
+                value={(formData.categories || "").split(",").filter(Boolean)}
+                onChange={(_, value) =>
+                  setFormData((p) => ({
+                    ...p,
+                    categories: (value || []).join(","),
+                  }))
+                }
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Categories"
+                    placeholder="Start typing..."
+                  />
+                )}
               />
             </Grid>
 
             <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                label="Actors (comma-separated)"
-                value={formData.actors}
-                onChange={handleInputChange("actors")}
-                placeholder="Tom Hanks,Robin Wright"
+              <Autocomplete
+                multiple
+                options={Array.isArray(actorOptions) ? actorOptions : []}
+                filterSelectedOptions
+                value={(formData.actors || "").split(",").filter(Boolean)}
+                onChange={(_, value) =>
+                  setFormData((p) => ({
+                    ...p,
+                    actors: (value || []).join(","),
+                  }))
+                }
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Actors"
+                    placeholder="Start typing..."
+                  />
+                )}
               />
             </Grid>
 
             <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                label="Directors (comma-separated)"
-                value={formData.directors}
-                onChange={handleInputChange("directors")}
-                placeholder="Robert Zemeckis"
+              <Autocomplete
+                multiple
+                options={Array.isArray(directorOptions) ? directorOptions : []}
+                filterSelectedOptions
+                value={(formData.directors || "").split(",").filter(Boolean)}
+                onChange={(_, value) =>
+                  setFormData((p) => ({
+                    ...p,
+                    directors: (value || []).join(","),
+                  }))
+                }
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Directors"
+                    placeholder="Start typing..."
+                  />
+                )}
               />
             </Grid>
 
             <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                label="Country"
-                value={formData.country}
-                onChange={handleInputChange("country")}
+              <Autocomplete
+                options={Array.isArray(countryOptions) ? countryOptions : []}
+                value={formData.country || null}
+                onChange={(_, value) =>
+                  setFormData((p) => ({ ...p, country: value || "" }))
+                }
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Country"
+                    placeholder="Start typing..."
+                  />
+                )}
               />
             </Grid>
 
@@ -2139,6 +2342,21 @@ function MovieCreationForm({
               <label htmlFor="video-upload">
                 <Button variant="outlined" component="span" fullWidth>
                   {files.video ? files.video.name : "Upload Video"}
+                </Button>
+              </label>
+            </Grid>
+
+            <Grid item xs={12} md={4}>
+              <input
+                accept="video/*"
+                style={{ display: "none" }}
+                id="trailer-upload"
+                type="file"
+                onChange={handleFileChange("trailer")}
+              />
+              <label htmlFor="trailer-upload">
+                <Button variant="outlined" component="span" fullWidth>
+                  {files.trailer ? files.trailer.name : "Upload Trailer"}
                 </Button>
               </label>
             </Grid>
@@ -4052,7 +4270,10 @@ function UsersManagement() {
 // Dashboard Analytics component
 function DashboardAnalytics() {
   const [analytics, setAnalytics] = useState(null);
+  const [coreStats, setCoreStats] = useState(null);
   const [trending, setTrending] = useState([]);
+  const [monthly, setMonthly] = useState([]);
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -4093,6 +4314,24 @@ function DashboardAnalytics() {
         };
       }
 
+      // Core stats (/api/admin/stats)
+      try {
+        const s = await adminAPI.getAdminStats();
+        setCoreStats(s);
+      } catch (e) {
+        console.warn("Admin stats API failed", e);
+        setCoreStats(null);
+      }
+
+      // Monthly stats of selected year
+      try {
+        const m = await adminAPI.getMonthlyStats(selectedYear);
+        setMonthly(Array.isArray(m) ? m : m?.data || []);
+      } catch (e) {
+        console.warn("Monthly stats API failed", e);
+        setMonthly([]);
+      }
+
       // Try to get trending data
       let trendingData = [];
       try {
@@ -4112,6 +4351,17 @@ function DashboardAnalytics() {
       setError(err.message || "Failed to load analytics");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleYearChange = async (event) => {
+    const y = Number(event.target.value);
+    setSelectedYear(y);
+    try {
+      const m = await adminAPI.getMonthlyStats(y);
+      setMonthly(Array.isArray(m) ? m : m?.data || []);
+    } catch (_) {
+      setMonthly([]);
     }
   };
 
@@ -4144,13 +4394,14 @@ function DashboardAnalytics() {
         <Grid item xs={12} sm={6} md={3}>
           <Card sx={{ textAlign: "center", p: 2 }}>
             <Typography variant="h4" color="primary" gutterBottom>
-              {analytics?.stats?.totalMovies ?? 0}
+              {coreStats?.totalMovies ?? analytics?.stats?.totalMovies ?? 0}
             </Typography>
             <Typography variant="h6" gutterBottom>
               Total Movies
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              {analytics?.stats?.totalComments ?? 0} total comments
+              {coreStats?.totalComments ?? analytics?.stats?.totalComments ?? 0}{" "}
+              total comments
             </Typography>
           </Card>
         </Grid>
@@ -4158,13 +4409,14 @@ function DashboardAnalytics() {
         <Grid item xs={12} sm={6} md={3}>
           <Card sx={{ textAlign: "center", p: 2 }}>
             <Typography variant="h4" color="secondary" gutterBottom>
-              {analytics?.stats?.totalUsers ?? 0}
+              {coreStats?.totalUsers ?? analytics?.stats?.totalUsers ?? 0}
             </Typography>
             <Typography variant="h6" gutterBottom>
               Total Users
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              {analytics?.stats?.activeUsers ?? 0} active users
+              {coreStats?.activeUsers ?? analytics?.stats?.activeUsers ?? 0}{" "}
+              active users
             </Typography>
           </Card>
         </Grid>
@@ -4172,13 +4424,14 @@ function DashboardAnalytics() {
         <Grid item xs={12} sm={6} md={3}>
           <Card sx={{ textAlign: "center", p: 2 }}>
             <Typography variant="h4" color="success.main" gutterBottom>
-              {analytics?.stats?.totalViews ?? 0}
+              {coreStats?.totalViews ?? analytics?.stats?.totalViews ?? 0}
             </Typography>
             <Typography variant="h6" gutterBottom>
               Total Views
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              {analytics?.stats?.averageRating ?? 0} avg rating
+              {coreStats?.averageRating ?? analytics?.stats?.averageRating ?? 0}{" "}
+              avg rating
             </Typography>
           </Card>
         </Grid>
@@ -4186,13 +4439,16 @@ function DashboardAnalytics() {
         <Grid item xs={12} sm={6} md={3}>
           <Card sx={{ textAlign: "center", p: 2 }}>
             <Typography variant="h4" color="warning.main" gutterBottom>
-              {analytics?.stats?.totalReports ?? 0}
+              {coreStats?.totalReports ?? analytics?.stats?.totalReports ?? 0}
             </Typography>
             <Typography variant="h6" gutterBottom>
               Total Reports
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              {analytics?.stats?.pendingReports ?? 0} pending
+              {coreStats?.pendingReports ??
+                analytics?.stats?.pendingReports ??
+                0}{" "}
+              pending
             </Typography>
           </Card>
         </Grid>
@@ -4262,52 +4518,61 @@ function DashboardAnalytics() {
           </Card>
         </Grid>
 
-        {/* Recent Activity */}
+        {/* Monthly Stats */}
         <Grid item xs={12} md={4}>
           <Card>
-            <CardHeader title="Recent Activity" />
+            <CardHeader
+              title={
+                <Box
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                  }}
+                >
+                  <Typography variant="h6">Monthly Stats</Typography>
+                  <FormControl size="small" sx={{ minWidth: 100 }}>
+                    <InputLabel>Year</InputLabel>
+                    <Select
+                      value={selectedYear}
+                      label="Year"
+                      onChange={handleYearChange}
+                    >
+                      {[0, 1, 2, 3].map((i) => {
+                        const y = new Date().getFullYear() - i;
+                        return (
+                          <MenuItem key={y} value={y}>
+                            {y}
+                          </MenuItem>
+                        );
+                      })}
+                    </Select>
+                  </FormControl>
+                </Box>
+              }
+            />
             <CardContent>
-              <Stack spacing={2}>
-                <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-                  <Avatar sx={{ bgcolor: "success.main" }}>
-                    <AddIcon />
-                  </Avatar>
-                  <Box>
-                    <Typography variant="body2" fontWeight="bold">
-                      New movie added
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      2 hours ago
-                    </Typography>
-                  </Box>
-                </Box>
-                <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-                  <Avatar sx={{ bgcolor: "primary.main" }}>
-                    <PersonIcon />
-                  </Avatar>
-                  <Box>
-                    <Typography variant="body2" fontWeight="bold">
-                      New user registered
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      4 hours ago
-                    </Typography>
-                  </Box>
-                </Box>
-                <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-                  <Avatar sx={{ bgcolor: "warning.main" }}>
-                    <TrendingIcon />
-                  </Avatar>
-                  <Box>
-                    <Typography variant="body2" fontWeight="bold">
-                      Trending content updated
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      1 day ago
-                    </Typography>
-                  </Box>
-                </Box>
-              </Stack>
+              {Array.isArray(monthly) && monthly.length > 0 ? (
+                <Stack spacing={1}>
+                  {monthly.map((m, idx) => (
+                    <Box
+                      key={idx}
+                      sx={{ display: "flex", justifyContent: "space-between" }}
+                    >
+                      <Typography variant="body2" color="text.secondary">
+                        {m.monthName || m.month || idx + 1}
+                      </Typography>
+                      <Typography variant="body2" fontWeight="bold">
+                        {m.value ?? m.total ?? 0}
+                      </Typography>
+                    </Box>
+                  ))}
+                </Stack>
+              ) : (
+                <Typography variant="body2" color="text.secondary">
+                  No data for {selectedYear}
+                </Typography>
+              )}
             </CardContent>
           </Card>
         </Grid>

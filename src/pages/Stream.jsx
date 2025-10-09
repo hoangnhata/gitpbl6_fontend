@@ -473,7 +473,7 @@ export default function Stream() {
               .player-slider::-moz-range-track, .volume-slider::-moz-range-track { height: 6px; background: transparent; }
               .player-slider::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: #ffffff; border: 2px solid rgba(0,0,0,0.9); box-shadow: 0 2px 8px rgba(0,0,0,0.35); }
               .volume-slider::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: #ffffff; border: 2px solid rgba(0,0,0,0.9); box-shadow: 0 2px 8px rgba(0,0,0,0.35); }
-            `}</style>
+              `}</style>
               <video
                 ref={videoRef}
                 src={

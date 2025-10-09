@@ -648,22 +648,46 @@ export default function MovieDetail() {
                           pt: "56.25%",
                         }}
                       >
-                        {" "}
                         {/* 16:9 aspect ratio */}
-                        <iframe
-                          src={movie.trailerUrl.replace("watch?v=", "embed/")}
-                          title="Movie Trailer"
-                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                          allowFullScreen
-                          style={{
-                            position: "absolute",
-                            top: 0,
-                            left: 0,
-                            width: "100%",
-                            height: "100%",
-                            border: 0,
-                          }}
-                        />
+                        {movie.trailerUrl.includes("youtube.com") ||
+                        movie.trailerUrl.includes("youtu.be") ? (
+                          // YouTube URL - use iframe
+                          <iframe
+                            src={movie.trailerUrl
+                              .replace("watch?v=", "embed/")
+                              .replace("youtu.be/", "youtube.com/embed/")}
+                            title="Movie Trailer"
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                            allowFullScreen
+                            style={{
+                              position: "absolute",
+                              top: 0,
+                              left: 0,
+                              width: "100%",
+                              height: "100%",
+                              border: 0,
+                            }}
+                          />
+                        ) : (
+                          // Direct video file - use video element
+                          <video
+                            controls
+                            preload="metadata"
+                            style={{
+                              position: "absolute",
+                              top: 0,
+                              left: 0,
+                              width: "100%",
+                              height: "100%",
+                              objectFit: "cover",
+                            }}
+                          >
+                            <source src={movie.trailerUrl} type="video/mp4" />
+                            <source src={movie.trailerUrl} type="video/webm" />
+                            <source src={movie.trailerUrl} type="video/ogg" />
+                            Trình duyệt của bạn không hỗ trợ video.
+                          </video>
+                        )}
                       </Box>
                       <Box sx={{ p: 2.5 }}>
                         {" "}
