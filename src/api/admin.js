@@ -64,6 +64,21 @@ function formDataFetch(path, formData, options = {}) {
   return fetch(buildUrl(path), init).then(handleResponse);
 }
 
+// Helper for application/x-www-form-urlencoded requests
+function formEncodedFetch(path, params, options = {}) {
+  const headers = {
+    "Content-Type": "application/x-www-form-urlencoded",
+    ...getAuthHeader(),
+    ...(options.headers || {}),
+  };
+  const init = {
+    ...options,
+    headers,
+    body: params instanceof URLSearchParams ? params.toString() : params,
+  };
+  return fetch(buildUrl(path), init).then(handleResponse);
+}
+
 // ===== USER MANAGEMENT =====
 
 // GET /api/admin/users
@@ -466,32 +481,38 @@ export function createActor(actorData) {
   const formData = new FormData();
   if (actorData.name) formData.append("name", actorData.name);
   if (actorData.dob) formData.append("dob", actorData.dob);
+  if (actorData.birthDate) formData.append("birthDate", actorData.birthDate);
+  if (!actorData.birthDate && actorData.dob)
+    formData.append("birthDate", actorData.dob);
   if (actorData.description)
     formData.append("description", actorData.description);
+  if (actorData.biography) formData.append("biography", actorData.biography);
+  if (!actorData.biography && actorData.description)
+    formData.append("biography", actorData.description);
+  if (actorData.nationality)
+    formData.append("nationality", actorData.nationality);
   if (actorData.file) formData.append("file", actorData.file);
   return formDataFetch(`/admin/actors/form`, formData, { method: "POST" });
 }
 
 // PUT /api/admin/actors/{id}
-export function updateActor(actorId, actorData) {
-  if (!actorId) throw new Error("actorId is required");
-  if (!actorData) throw new Error("actorData is required");
-  return jsonFetch(`/admin/actors/${encodeURIComponent(actorId)}`, {
-    method: "PUT",
-    body: JSON.stringify(actorData),
-  });
-}
-
-// PUT /api/admin/actors/{id} (multipart form data for image updates)
-export function updateActorWithFormData(actorId, actorData) {
+export function updateActor(actorId, actorData = {}) {
   if (!actorId) throw new Error("actorId is required");
   if (!actorData) throw new Error("actorData is required");
 
   const formData = new FormData();
   if (actorData.name) formData.append("name", actorData.name);
   if (actorData.dob) formData.append("dob", actorData.dob);
+  if (actorData.birthDate) formData.append("birthDate", actorData.birthDate);
+  if (!actorData.birthDate && actorData.dob)
+    formData.append("birthDate", actorData.dob);
   if (actorData.description)
     formData.append("description", actorData.description);
+  if (actorData.biography) formData.append("biography", actorData.biography);
+  if (!actorData.biography && actorData.description)
+    formData.append("biography", actorData.description);
+  if (actorData.nationality)
+    formData.append("nationality", actorData.nationality);
   if (actorData.file) formData.append("file", actorData.file);
 
   return formDataFetch(
@@ -501,6 +522,11 @@ export function updateActorWithFormData(actorId, actorData) {
       method: "PUT",
     }
   );
+}
+
+// PUT /api/admin/actors/{id} (multipart form data for image updates)
+export function updateActorWithFormData(actorId, actorData) {
+  return updateActor(actorId, actorData);
 }
 
 // DELETE /api/admin/actors/{id}
@@ -558,17 +584,7 @@ export function createDirector(directorData) {
 }
 
 // PUT /api/directors/{id}
-export function updateDirector(directorId, directorData) {
-  if (!directorId) throw new Error("directorId is required");
-  if (!directorData) throw new Error("directorData is required");
-  return jsonFetch(`/directors/${encodeURIComponent(directorId)}`, {
-    method: "PUT",
-    body: JSON.stringify(directorData),
-  });
-}
-
-// PUT /api/directors/{id} (multipart for photo updates)
-export function updateDirectorWithFormData(directorId, directorData) {
+export function updateDirector(directorId, directorData = {}) {
   if (!directorId) throw new Error("directorId is required");
   if (!directorData) throw new Error("directorData is required");
 
@@ -589,6 +605,11 @@ export function updateDirectorWithFormData(directorId, directorData) {
       method: "PUT",
     }
   );
+}
+
+// PUT /api/directors/{id} (multipart for photo updates)
+export function updateDirectorWithFormData(directorId, directorData) {
+  return updateDirector(directorId, directorData);
 }
 
 // DELETE /api/directors/{id}
@@ -619,7 +640,7 @@ export function getCategoryByName(name) {
 }
 
 // POST /api/admin/categories
-export function createCategory(categoryData) {
+export function createCategory(categoryData = {}) {
   if (!categoryData) throw new Error("categoryData is required");
   // Many backends (e.g., Spring @RequestParam) expect params instead of JSON body
   const params = new URLSearchParams();
@@ -629,19 +650,17 @@ export function createCategory(categoryData) {
   if (categoryData.description)
     params.append("description", categoryData.description);
   if (categoryData.icon) params.append("icon", categoryData.icon);
-  return jsonFetch(`/admin/categories?${params.toString()}`, {
+  return formEncodedFetch(`/admin/categories`, params, {
     method: "POST",
   });
 }
 
 // PUT /api/admin/categories/{name}
-export function updateCategory(name, categoryData) {
+export function updateCategory(name, categoryData = {}) {
   if (!name) throw new Error("name is required");
   if (!categoryData) throw new Error("categoryData is required");
   // Support backends that expect request params rather than JSON
   const params = new URLSearchParams();
-  // Current name (identifier)
-  params.append("name", name);
   if (categoryData.displayName)
     params.append("displayName", categoryData.displayName);
   if (categoryData.description)
@@ -651,7 +670,7 @@ export function updateCategory(name, categoryData) {
   if (categoryData.name && categoryData.name !== name) {
     params.append("newName", categoryData.name);
   }
-  return jsonFetch(`/admin/categories?${params.toString()}`, {
+  return formEncodedFetch(`/admin/categories/${encodeURIComponent(name)}`, params, {
     method: "PUT",
   });
 }

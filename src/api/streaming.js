@@ -5,6 +5,12 @@
  * Resolve API base URL from environment or default
  */
 const API_BASE_URL = import.meta?.env?.VITE_API_BASE_URL || "/api";
+const API_KEY = import.meta?.env?.VITE_API_KEY || "";
+const STATUS_BASE_URL =
+  import.meta?.env?.VITE_MOVIE_STATUS_BASE_URL ||
+  (API_BASE_URL.endsWith("/api")
+    ? API_BASE_URL.replace(/\/api$/, "")
+    : API_BASE_URL);
 
 function buildUrl(path) {
   if (path.startsWith("http://") || path.startsWith("https://")) return path;
@@ -35,6 +41,29 @@ function jsonFetch(path, options = {}) {
   };
   const init = { ...options, headers };
   return fetch(buildUrl(path), init).then(handleResponse);
+}
+
+function withApiKey(params = {}) {
+  const searchParams =
+    params instanceof URLSearchParams ? params : new URLSearchParams(params);
+  if (API_KEY && !searchParams.has("Key") && !searchParams.has("key")) {
+    searchParams.append("Key", API_KEY);
+  }
+  return searchParams;
+}
+
+function statusFetch(path, options = {}) {
+  const headers = {
+    "Content-Type": "application/json",
+    ...(options.headers || {}),
+  };
+  const init = { ...options, headers };
+  const base = STATUS_BASE_URL || "";
+  const isAbsolute = path.startsWith("http://") || path.startsWith("https://");
+  const sanitizedBase = base.endsWith("/") ? base.slice(0, -1) : base;
+  const sanitizedPath = path.startsWith("/") || isAbsolute ? path : `/${path}`;
+  const url = isAbsolute ? path : `${sanitizedBase}${sanitizedPath}`;
+  return fetch(url, init).then(handleResponse);
 }
 
 // auth header util kept for backward compatibility (in case used elsewhere)
@@ -219,14 +248,32 @@ export function getPopularSearches(limit = 10) {
 
 // GET /api/movies/featured?limit=
 export function getFeaturedMovies(limit = 10) {
-  const params = new URLSearchParams({ limit: String(limit) });
-  return jsonFetch(`/movies/featured?${params.toString()}`, { method: "GET" });
+  const params = withApiKey({ limit: String(limit) });
+  return statusFetch(`/movies/featured?${params.toString()}`, { method: "GET" });
+}
+
+// GET /api/movies/now-showing?limit=
+export function getNowShowingMovies(limit = 10) {
+  const params = withApiKey({ limit: String(limit) });
+  return statusFetch(`/movies/now-showing?${params.toString()}`, {
+    method: "GET",
+  });
+}
+
+// GET /api/movies/upcoming?limit=
+export function getUpcomingMovies(limit = 10) {
+  const params = withApiKey({ limit: String(limit) });
+  return statusFetch(`/movies/upcoming?${params.toString()}`, {
+    method: "GET",
+  });
 }
 
 // GET /api/movies/trending?limit=
 export function getTrendingMovies(limit = 10) {
-  const params = new URLSearchParams({ limit: String(limit) });
-  return jsonFetch(`/movies/trending?${params.toString()}`, { method: "GET" });
+  const params = withApiKey({ limit: String(limit) });
+  return statusFetch(`/movies/trending?${params.toString()}`, {
+    method: "GET",
+  });
 }
 
 // Favorites APIs moved to src/api/favorites.js
@@ -262,6 +309,8 @@ export default {
   getPopularSearches,
   // movies exports
   getFeaturedMovies,
+  getNowShowingMovies,
+  getUpcomingMovies,
   getTrendingMovies,
   toPlayerSource,
 };

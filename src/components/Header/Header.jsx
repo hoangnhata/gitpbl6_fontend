@@ -310,6 +310,8 @@ const Header = () => {
                       openCountries(e);
                     } else if (isActors) {
                       navigate("/actors");
+                    } else if (item.label === "Lịch chiếu") {
+                      navigate("/showtime");
                     }
                   }}
                 >

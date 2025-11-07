@@ -31,6 +31,9 @@ __pycache__/
 
 .venv/
 
+# E2E tests (local only)
+e2e/
+
 # Model files
 face_classifier_finetuned.pth
 *.pth

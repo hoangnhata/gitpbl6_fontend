@@ -17,6 +17,7 @@ import {
   TextField,
   Tabs,
   Tab,
+  Rating,
 } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
@@ -53,6 +54,14 @@ import {
   stopStreaming,
   getAvailableSubtitles,
 } from "../api/streaming";
+import {
+  createRating,
+  updateRating,
+  deleteRating as apiDeleteRating,
+  getMovieRatings,
+  getUserRatingForMovie,
+} from "../api/ratings";
+import { listPublicUsers, getPublicUser } from "../api/users";
 
 // Fallback cast data for when a movie lacks actor info
 const DEFAULT_STREAM_CAST = [
@@ -71,7 +80,7 @@ export default function Stream() {
   const location = useLocation();
   const navigate = useNavigate();
   const { movies } = useMovies();
-  const { token, isAuthenticated } = useAuth();
+  const { token, isAuthenticated, user } = useAuth();
 
   const movie = useMemo(() => {
     const numericId = Number(id);
@@ -210,6 +219,17 @@ export default function Stream() {
       v.removeEventListener("progress", onProgress);
     };
   }, []);
+  useEffect(() => {
+    (async () => {
+      try {
+        if (!user?.id) return;
+        const info = await getPublicUser(user.id);
+        if (info?.id) {
+          setUsersMap((m) => ({ ...m, [info.id]: { name: info.name, avatar: info.avatar } }));
+        }
+      } catch (_) {}
+    })();
+  }, [user?.id]);
 
   // derive movieId
   const movieId = useMemo(() => {
@@ -450,6 +470,167 @@ export default function Stream() {
   useEffect(() => {
     return () => clearHideUiTimer();
   }, []);
+
+  // Ratings state and effects
+  const [userRating, setUserRating] = useState(null);
+  const [userStars, setUserStars] = useState(3); // Mặc định 3 sao
+  const [userComment, setUserComment] = useState("");
+  const [movieRatings, setMovieRatings] = useState({ items: [], page: 0, size: 10, totalPages: 1 });
+  const [ratingBusy, setRatingBusy] = useState(false);
+  // Inline edit controls removed; use a dedicated "Đánh giá của bạn" section instead
+
+  // Helpers: reviewer display info
+  const [usersMap, setUsersMap] = useState({});
+  useEffect(() => {
+    (async () => {
+      try {
+        const list = await listPublicUsers();
+        const arr = Array.isArray(list) ? list : Array.isArray(list?.items) ? list.items : [];
+        const map = {};
+        for (const u of arr) {
+          const id = u?.id;
+          if (id == null) continue;
+          map[id] = {
+            name: u.fullName || u.username || u.displayName || u.email || `Người dùng ${id}`,
+            avatar: u.avatarUrl || u.avatar || u.imageUrl || "",
+          };
+        }
+        setUsersMap(map);
+      } catch (_) {}
+    })();
+  }, []);
+  const getReviewerName = (r) => {
+    if (!r) return "Người dùng";
+    const uid = Number(r.userId ?? r.userID ?? r.user_id);
+    if (usersMap[uid]?.name) return usersMap[uid].name;
+    if (Number(r.userId ?? r.userID ?? r.user_id) === Number(user?.id)) {
+      return (
+        user?.fullName ||
+        user?.username ||
+        user?.displayName ||
+        user?.name ||
+        user?.email ||
+        "Bạn"
+      );
+    }
+    return (
+      r.userName ||
+      r.username ||
+      r.fullName ||
+      r.displayName ||
+      (r.user && (r.user.name || r.user.fullName || r.user.username)) ||
+      `Người dùng ${r.userId ?? ""}`
+    );
+  };
+  const getReviewerAvatar = (r) => {
+    if (!r) return "";
+    const uid = Number(r.userId ?? r.userID ?? r.user_id);
+    if (usersMap[uid]?.avatar) return usersMap[uid].avatar;
+    if (Number(r.userId ?? r.userID ?? r.user_id) === Number(user?.id)) {
+      return user?.avatar || user?.avatarUrl || user?.imageUrl || "";
+    }
+    return r.userAvatar || r.avatar || r.avatarUrl || r.imageUrl || (r.user && (r.user.avatar || r.user.avatarUrl || r.user.imageUrl)) || "";
+  };
+
+  useEffect(() => {
+    (async () => {
+      try {
+        if (!movieId) return;
+        const list = await getMovieRatings(movieId, { page: 0, size: 10 }, token);
+        const items = Array.isArray(list?.items)
+          ? list.items
+          : Array.isArray(list?.content)
+          ? list.content
+          : Array.isArray(list?.data?.items)
+          ? list.data.items
+          : Array.isArray(list)
+          ? list
+          : [];
+        setMovieRatings({
+          items,
+          page: list?.page ?? 0,
+          size: list?.size ?? 10,
+          totalPages: list?.totalPages ?? 1,
+        });
+      } catch (_) {
+        setMovieRatings({ items: [], page: 0, size: 10, totalPages: 1 });
+      }
+    })();
+  }, [movieId, token, user?.id]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        if (!movieId || !token || !isAuthenticated) return;
+        const r = await getUserRatingForMovie(movieId, token, user?.id);
+        if (r && typeof r?.stars === "number") {
+          setUserRating(r);
+          setUserStars(r.stars);
+          setUserComment(r.comment || "");
+        } else {
+          setUserRating(null);
+          setUserStars(3); // Mặc định 3 sao
+          setUserComment("");
+        }
+      } catch (_) {
+        setUserRating(null);
+        setUserStars(3); // Mặc định 3 sao
+        setUserComment("");
+      }
+    })();
+  }, [movieId, token, isAuthenticated, user?.id]);
+
+  const submitRating = async () => {
+    if (!isAuthenticated) {
+      navigate("/login");
+      return;
+    }
+    if (!movieId) return;
+    try {
+      setRatingBusy(true);
+      // Nếu không chọn sao, mặc định là 3 sao
+      const stars = userStars || 3;
+      let saved;
+      if (userRating?.id) saved = await updateRating(userRating.id, { stars: stars, comment: userComment }, token);
+      else saved = await createRating({ movieId, stars: stars, comment: userComment }, token);
+      setUserRating(saved);
+      // refresh list
+      try {
+        const list = await getMovieRatings(movieId, { page: 0, size: 10 }, token);
+        const items = Array.isArray(list?.items)
+          ? list.items
+          : Array.isArray(list?.content)
+          ? list.content
+          : Array.isArray(list)
+          ? list
+          : [];
+        setMovieRatings({ items, page: list?.page ?? 0, size: list?.size ?? 10, totalPages: list?.totalPages ?? 1 });
+      } catch (_) {}
+    } catch (_) {
+      // ignore UI-level error here
+    } finally {
+      setRatingBusy(false);
+    }
+  };
+
+  const removeRating = async () => {
+    if (!userRating?.id) return;
+    try {
+      setRatingBusy(true);
+      await apiDeleteRating(userRating.id, token);
+      setUserRating(null);
+      setUserStars(3); // Mặc định 3 sao
+      setUserComment("");
+      const list = await getMovieRatings(movieId, { page: 0, size: 10 }, token);
+      const items = Array.isArray(list?.items) ? list.items : Array.isArray(list) ? list : [];
+      setMovieRatings({ items, page: list?.page ?? 0, size: list?.size ?? 10, totalPages: list?.totalPages ?? 1 });
+    } catch (_) {
+    } finally {
+      setRatingBusy(false);
+    }
+  };
+
+  // Editing handled by the personal review card below
 
   return (
     <Box sx={{ minHeight: "100vh", color: "#fff", background: "#0a0f1a" }}>
@@ -1225,118 +1406,123 @@ export default function Stream() {
               </Card>
               <Divider sx={{ my: 2, borderColor: "rgba(255,255,255,0.08)" }} />
 
-              {/* Comments & Reviews */}
+              {/* Reviews only */}
               <Typography variant="h6" fontWeight={900} sx={{ mb: 1 }}>
-                Bình luận & Đánh giá
+                Đánh giá
               </Typography>
-              <Tabs
-                value={commentTab}
-                onChange={(_, v) => setCommentTab(v)}
-                textColor="primary"
-                TabIndicatorProps={{ style: { backgroundColor: "#FFD700" } }}
-                sx={{
-                  minHeight: 36,
-                  mb: 1,
-                  "& .MuiTab-root": { minHeight: 36, color: "#fff" },
-                }}
-              >
-                <Tab label="Bình luận" value="comment" />
-                <Tab label="Đánh giá" value="review" />
-              </Tabs>
-              <Stack
-                direction="row"
-                spacing={2}
-                alignItems="flex-start"
-                sx={{
-                  p: 2,
-                  bgcolor: "rgba(15,16,19,0.9)",
-                  border: "1px solid rgba(255,255,255,0.1)",
-                  borderRadius: 2,
-                  boxShadow: "0 10px 30px rgba(0,0,0,0.25)",
-                  mb: 2,
-                }}
-              >
-                <Avatar alt="Bạn" src="" sx={{ width: 36, height: 36 }} />
-                <Box sx={{ flex: 1 }}>
-                  <TextField
-                    placeholder={
-                      commentTab === "comment"
-                        ? "Viết bình luận..."
-                        : "Viết đánh giá..."
-                    }
-                    multiline
-                    minRows={2}
-                    variant="outlined"
-                    fullWidth
-                    value={commentText}
-                    onChange={(e) =>
-                      setCommentText(e.target.value.slice(0, maxCommentLen))
-                    }
-                    helperText={`${commentText.length}/${maxCommentLen}`}
-                    InputProps={{ sx: { color: "#fff" } }}
-                    sx={{
-                      "& .MuiOutlinedInput-root": {
-                        color: "#fff",
-                        bgcolor: "#111",
-                        "& fieldset": { borderColor: "rgba(255,255,255,0.2)" },
-                        "&:hover fieldset": {
-                          borderColor: "rgba(255,255,255,0.35)",
-                        },
-                        "&.Mui-focused fieldset": { borderColor: "#FFD700" },
-                      },
-                      "& .MuiFormHelperText-root": {
-                        color: "rgba(255,255,255,0.6)",
-                      },
-                    }}
-                  />
-                  <Stack
-                    direction="row"
-                    justifyContent="flex-end"
-                    sx={{ mt: 1 }}
-                  >
-                    <Button
-                      sx={{
-                        color: "#000",
-                        bgcolor: "#FFD700",
-                        fontWeight: 700,
-                        px: 2,
-                        borderRadius: 999,
-                        ":hover": { bgcolor: "#FFC107" },
-                      }}
-                    >
-                      Gửi
-                    </Button>
-                  </Stack>
-                </Box>
-              </Stack>
+              {/* Input moved below list; inline edit controls appear on your review */}
 
-              {/* Sample comments list */}
-              <Stack spacing={2}>
-                {[1, 2, 3].map((i) => (
-                  <Stack key={i} direction="row" spacing={2}>
-                    <Avatar sx={{ width: 36, height: 36 }}>U{i}</Avatar>
-                    <Box sx={{ flex: 1 }}>
-                      <Stack direction="row" alignItems="center" spacing={1}>
-                        <Typography variant="subtitle2" fontWeight={700}>
-                          Người dùng {i}
-                        </Typography>
-                        <Typography
-                          variant="caption"
-                          color="rgba(255,255,255,0.6)"
-                        >
-                          11 phút trước
-                        </Typography>
+              {/* Ratings list */}
+              {
+                <Stack spacing={2} sx={{ mb: 3 }}>
+                  {[...movieRatings.items]
+                    .sort((a, b) => {
+                      const au = Number(a.userId ?? a.userID ?? a.user_id) === Number(user?.id);
+                      const bu = Number(b.userId ?? b.userID ?? b.user_id) === Number(user?.id);
+                      if (au && !bu) return -1;
+                      if (!au && bu) return 1;
+                      const at = new Date(a.createdAt || a.created_at || 0).getTime();
+                      const bt = new Date(b.createdAt || b.created_at || 0).getTime();
+                      return bt - at;
+                    })
+                    .map((r, idx) => {
+                    const name = getReviewerName(r);
+                    const ava = getReviewerAvatar(r);
+                    const fallback = `https://i.pravatar.cc/150?img=${(idx % 70) + 1}`;
+                    const isOwn = Number(r.userId ?? r.userID ?? r.user_id) === Number(user?.id);
+                    return (
+                      <Stack key={r.id} direction="row" spacing={2}>
+                        <Avatar src={ava || fallback} sx={{ width: 36, height: 36 }}>
+                          {(name || "U").charAt(0)}
+                        </Avatar>
+                        <Box sx={{ flex: 1 }}>
+                          <Stack direction="row" alignItems="center" spacing={1}>
+                            <Typography variant="subtitle2" fontWeight={700}>{name}</Typography>
+                            {isOwn && (
+                              <Typography variant="caption" sx={{ color: "#FFD700", fontWeight: 800, ml: 1 }}>
+                                • Của bạn
+                              </Typography>
+                            )}
+                            <Typography variant="caption" color="rgba(255,255,255,0.6)">
+                              {new Date(r.createdAt || r.created_at || Date.now()).toLocaleString()}
+                            </Typography>
+                          </Stack>
+                          <Stack direction="row" alignItems="center" spacing={1} sx={{ mt: 0.5 }}>
+                            <Rating value={Number(r.stars) || 0} readOnly size="small" />
+                            <Typography variant="caption" color="rgba(255,255,255,0.7)">{r.stars}/5</Typography>
+                          </Stack>
+                          {r.comment && (
+                            <Typography variant="body2" sx={{ color: "rgba(255,255,255,0.85)", mt: 0.5 }}>{r.comment}</Typography>
+                          )}
+                        </Box>
                       </Stack>
-                      <Typography
-                        variant="body2"
-                        sx={{ color: "rgba(255,255,255,0.85)" }}
-                      >
-                        Bình luận mẫu để minh hoạ giao diện.
+                    );
+                  })}
+                </Stack>
+              }
+
+              {/* Personal review card */}
+              <Typography variant="subtitle1" fontWeight={800} sx={{ mt: 3, mb: 1 }}>
+                Đánh giá của bạn
+              </Typography>
+              {
+                <Stack
+                  direction="row"
+                  spacing={2}
+                  alignItems="flex-start"
+                  sx={{
+                    p: 2,
+                    bgcolor: "rgba(15,16,19,0.9)",
+                    border: "1px solid rgba(255,255,255,0.1)",
+                    borderRadius: 2,
+                    boxShadow: "0 10px 30px rgba(0,0,0,0.25)",
+                    backdropFilter: "blur(8px)",
+                  }}
+                >
+                  <Avatar alt="Bạn" src={user?.avatar || user?.avatarUrl || user?.imageUrl || ""} sx={{ width: 36, height: 36 }} />
+                  <Box sx={{ flex: 1 }}>
+                    <Typography variant="subtitle2" fontWeight={700} sx={{ color: "rgba(255,255,255,0.9)" }}>
+                      {user?.fullName || user?.username || user?.displayName || user?.name || user?.email || "Bạn"}
+                    </Typography>
+                    <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+                      <Rating value={Number(userStars) || 3} precision={1} max={5} onChange={(_, v) => setUserStars(v || 3)} />
+                      <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.7)" }}>
+                        {userStars ? `${userStars}/5` : "3/5"}
                       </Typography>
-                    </Box>
-                  </Stack>
-                ))}
-              </Stack>
+                    </Stack>
+                    <TextField
+                      placeholder="Viết đánh giá (tuỳ chọn)"
+                      multiline
+                      minRows={2}
+                      variant="outlined"
+                      fullWidth
+                      value={userComment}
+                      onChange={(e) => setUserComment(e.target.value)}
+                      InputProps={{ sx: { color: "#fff" } }}
+                      sx={{
+                        "& .MuiOutlinedInput-root": {
+                          color: "#fff",
+                          bgcolor: "#111",
+                          "& fieldset": { borderColor: "rgba(255,255,255,0.2)" },
+                          "&:hover fieldset": { borderColor: "rgba(255,255,255,0.35)" },
+                          "&.Mui-focused fieldset": { borderColor: "#FFD700" },
+                        },
+                      }}
+                    />
+                    <Stack direction="row" justifyContent="flex-end" spacing={1} sx={{ mt: 1 }}>
+                      {userRating?.id && (
+                        <Button variant="outlined" onClick={removeRating} disabled={ratingBusy} sx={{ color: "#fff", borderColor: "rgba(255,255,255,0.2)" }}>
+                          Xoá
+                        </Button>
+                      )}
+                      <Button onClick={submitRating} disabled={ratingBusy} sx={{ color: "#000", bgcolor: "#FFD700", fontWeight: 700, px: 2, borderRadius: 999, ":hover": { bgcolor: "#FFC107" } }}>
+                        {userRating?.id ? "Cập nhật" : "Gửi"}
+                      </Button>
+                    </Stack>
+                  </Box>
+                </Stack>
+              }
+              {/* Comments UI removed completely */}
             </Box>
 
             <Divider

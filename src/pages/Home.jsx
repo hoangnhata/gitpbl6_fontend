@@ -20,7 +20,10 @@ import useMovies from "../hooks/useMovies";
 import { toHero } from "../utils/imageUtils";
 
 // API
-import { getFeaturedMovies, getTrendingMovies } from "../api/streaming";
+import {
+  getNowShowingMovies,
+  getTrendingMovies,
+} from "../api/streaming";
 
 export default function Home() {
   const { movies } = useMovies();
@@ -168,16 +171,24 @@ export default function Home() {
     };
   }, []);
 
-  // Fetch featured movies from API
+  // Fetch good movies (now showing) from API
   useEffect(() => {
-    const fetchFeaturedMovies = async () => {
+    const fetchNowShowing = async () => {
       try {
-        console.log("Fetching featured movies...");
-        const data = await getFeaturedMovies(10);
-        console.log("Featured movies API response:", data);
+        console.log("Fetching now showing movies...");
+        const data = await getNowShowingMovies(10);
+        console.log("Now showing movies API response:", data);
 
         // Transform API response to match FeaturedMovies component format
-        const transformed = (data || []).map((movie) => {
+        const list = Array.isArray(data)
+          ? data
+          : Array.isArray(data?.content)
+          ? data.content
+          : Array.isArray(data?.data)
+          ? data.data
+          : [];
+
+        const transformed = list.map((movie, index) => {
           // Build full poster URL if it's a relative path
           let posterUrl = movie.posterUrl || "";
           if (
@@ -188,6 +199,12 @@ export default function Home() {
             posterUrl = `/api${posterUrl}`;
           }
           // If it already starts with /api, use it as is
+
+          if (!posterUrl) {
+            posterUrl = `https://via.placeholder.com/300x450/222/fff?text=${encodeURIComponent(
+              movie.title || `Movie ${index + 1}`
+            )}`;
+          }
 
           return {
             id: movie.id,
@@ -207,10 +224,10 @@ export default function Home() {
           };
         });
 
-        console.log("Transformed featured movies:", transformed);
+        console.log("Transformed now showing movies:", transformed);
         setFeaturedMovies(transformed);
       } catch (err) {
-        console.error("Error fetching featured movies:", err);
+        console.error("Error fetching now showing movies:", err);
         // On error, fallback to regular movies filtered by isFeatured
         const fallback = movies
           .filter((m) => m.isFeatured)
@@ -225,12 +242,12 @@ export default function Home() {
             genres: m.genres || [],
             synopsis: m.synopsis || "",
           }));
-        console.log("Using fallback featured movies:", fallback);
+        console.log("Using fallback now showing movies:", fallback);
         setFeaturedMovies(fallback);
       }
     };
 
-    fetchFeaturedMovies();
+    fetchNowShowing();
   }, [movies]); // Include movies for fallback
 
   // Lắng nghe sự kiện toast toàn cục

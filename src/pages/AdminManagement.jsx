@@ -947,6 +947,7 @@ function ActorsManagement() {
 
   const handleCreated = () => {
     setShowCreate(false);
+    setEditing(null);
     setSuccess("Actor saved successfully");
     loadActors();
   };

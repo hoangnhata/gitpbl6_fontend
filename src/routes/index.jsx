@@ -30,6 +30,7 @@ export default function Router() {
         { path: "actors", element: <ActorsPage /> },
         { path: "actor/:id", element: <ActorDetailPage /> },
         { path: "stream/:id", element: <StreamPage /> },
+        { path: "showtime", element: <ShowtimePage /> },
         { path: "login", element: <LoginPage /> },
         { path: "register", element: <RegisterPage /> },
         { path: "favorites", element: <FavoritesPage /> },
@@ -50,6 +51,7 @@ const MovieDetailPage = Loadable(lazy(() => import("../pages/MovieDetail")));
 const ActorsPage = Loadable(lazy(() => import("../pages/Actors")));
 const ActorDetailPage = Loadable(lazy(() => import("../pages/ActorDetail")));
 const StreamPage = Loadable(lazy(() => import("../pages/Stream")));
+const ShowtimePage = Loadable(lazy(() => import("../pages/Showtime")));
 const LoginPage = Loadable(lazy(() => import("../pages/Login")));
 const RegisterPage = Loadable(lazy(() => import("../pages/Register")));
 const FavoritesPage = Loadable(lazy(() => import("../pages/Favorites")));
