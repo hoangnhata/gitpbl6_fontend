@@ -3,33 +3,15 @@ import {
   Box,
   Container,
   Typography,
-  IconButton,
-  keyframes,
   Avatar,
 } from "@mui/material";
 import { styled } from "@mui/material/styles";
-import KeyboardArrowLeftIcon from "@mui/icons-material/KeyboardArrowLeft";
-import KeyboardArrowRightIcon from "@mui/icons-material/KeyboardArrowRight";
-import EmojiEventsIcon from "@mui/icons-material/EmojiEvents";
 import BoltIcon from "@mui/icons-material/Bolt";
 import MaleIcon from "@mui/icons-material/Male";
 import FemaleIcon from "@mui/icons-material/Female";
 import TransgenderIcon from "@mui/icons-material/Transgender";
 import AllInclusiveIcon from "@mui/icons-material/AllInclusive";
 import LocalMoviesOutlinedIcon from "@mui/icons-material/LocalMoviesOutlined";
-import CommentCard from "./CommentCard";
-
-// Animations
-const fadeInUp = keyframes`
-  from {
-    opacity: 0;
-    transform: translateY(30px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-`;
 
 const SectionContainer = styled(Box)(({ theme }) => ({
   padding: theme.spacing(6, 0),
@@ -49,80 +31,10 @@ const SectionContainer = styled(Box)(({ theme }) => ({
   },
 }));
 
-const SectionHeader = styled(Box)(({ theme }) => ({
-  display: "flex",
-  alignItems: "center",
-  marginBottom: theme.spacing(3),
-  gap: theme.spacing(1),
-}));
-
-const SectionTitle = styled(Typography)(({ theme }) => ({
-  color: "#fff",
-  fontSize: "2.5rem",
-  fontWeight: 900,
-  display: "flex",
-  alignItems: "center",
-  gap: theme.spacing(1),
-  background: "linear-gradient(45deg, #FFD700, #FFA500, #FFD700)",
-  backgroundClip: "text",
-  WebkitBackgroundClip: "text",
-  WebkitTextFillColor: "transparent",
-  textShadow: "0 0 30px rgba(255, 215, 0, 0.5)",
-  animation: `${fadeInUp} 0.8s ease-out`,
-}));
-
-const CommentsContainer = styled(Box)(({ theme }) => ({
-  position: "relative",
-  display: "flex",
-  alignItems: "center",
-  gap: theme.spacing(2),
-}));
-
-const ScrollContainer = styled(Box)(({ theme }) => ({
-  display: "flex",
-  gap: theme.spacing(2),
-  overflowX: "auto",
-  scrollBehavior: "smooth",
-  padding: theme.spacing(1),
-  "&::-webkit-scrollbar": {
-    height: 6,
-  },
-  "&::-webkit-scrollbar-track": {
-    background: "rgba(255,255,255,0.1)",
-    borderRadius: 3,
-  },
-  "&::-webkit-scrollbar-thumb": {
-    background: "linear-gradient(135deg, #FFD700 0%, #FFA500 100%)",
-    borderRadius: 3,
-  },
-  "&::-webkit-scrollbar-thumb:hover": {
-    background: "linear-gradient(135deg, #FFA500 0%, #FFD700 100%)",
-  },
-}));
-
-const NavButton = styled(IconButton)(() => ({
-  background: "rgba(0,0,0,0.8)",
-  color: "#FFD700",
-  width: 48,
-  height: 48,
-  border: "2px solid rgba(255,215,0,0.3)",
-  transition: "all 0.3s ease",
-  "&:hover": {
-    background: "rgba(255,215,0,0.1)",
-    border: "2px solid rgba(255,215,0,0.6)",
-    transform: "scale(1.1)",
-    boxShadow: "0 4px 12px rgba(255,215,0,0.3)",
-  },
-  "&:disabled": {
-    background: "rgba(0,0,0,0.3)",
-    color: "rgba(255,255,255,0.3)",
-    border: "2px solid rgba(255,255,255,0.1)",
-  },
-}));
 
 // Recent comments styles
 const RecentSection = styled(Box)(({ theme }) => ({
-  marginTop: theme.spacing(4),
+  marginTop: 0,
   display: "flex",
   flexDirection: "column",
   gap: theme.spacing(2),
@@ -161,107 +73,6 @@ const RecentViewport = styled(Box)({
   position: "relative",
   borderRadius: 12,
 });
-
-// Dữ liệu mẫu cho comments
-const sampleComments = [
-  {
-    id: 1,
-    user: {
-      name: "Psycho",
-      avatar: "https://i.pravatar.cc/150?img=1",
-      gender: "♂",
-    },
-    movieThumbnail:
-      "https://upload.wikimedia.org/wikipedia/en/7/7e/Wednesday_Netflix_series_poster.png",
-    comment:
-      "hoá ra bà ngoại nhốt ì Ophelia trong ngục tối. SS3 sẽ là cuộc phiêu lưu củ...",
-    interactions: {
-      upvotes: 5,
-      downvotes: 0,
-      replies: 0,
-    },
-  },
-  {
-    id: 2,
-    user: {
-      name: "Terry",
-      avatar: "https://i.pravatar.cc/150?img=2",
-      gender: "♂",
-    },
-    movieThumbnail: "https://via.placeholder.com/80x60/4ECDC4/fff?text=Boys+II",
-    comment:
-      "t cảm giác khi Sang Won debut thì idol nổi tiếng nhất gen 5 sẽ ra đời.",
-    interactions: {
-      upvotes: 4,
-      downvotes: 1,
-      replies: 2,
-    },
-  },
-  {
-    id: 3,
-    user: {
-      name: "yui",
-      avatar: "https://i.pravatar.cc/150?img=3",
-      gender: "∞",
-    },
-    movieThumbnail: "https://via.placeholder.com/80x60/FF6B6B/fff?text=Movie",
-    comment:
-      "tụi bây khen thằnh n9 nhiều lên 🫠, một cái thằng dính nhiều scanda...",
-    interactions: {
-      upvotes: 2,
-      downvotes: 0,
-      replies: 0,
-    },
-  },
-  {
-    id: 4,
-    user: {
-      name: "Ái Vy",
-      avatar: "https://i.pravatar.cc/150?img=4",
-      gender: "♀",
-    },
-    movieThumbnail: "https://via.placeholder.com/80x60/96CEB4/fff?text=Forest",
-    comment: "Trùi ui hayyyyyyyy qă",
-    interactions: {
-      upvotes: 0,
-      downvotes: 0,
-      replies: 5,
-    },
-  },
-  {
-    id: 5,
-    user: {
-      name: "Scor_16th",
-      avatar: "https://i.pravatar.cc/150?img=5",
-      gender: "∞",
-    },
-    movieThumbnail:
-      "https://via.placeholder.com/80x60/45B7D1/fff?text=PEACEMAKER",
-    comment:
-      "Thực ra cái earth 2 này phải là the worst dimension ever. Nếu để ý thì...",
-    interactions: {
-      upvotes: 2,
-      downvotes: 0,
-      replies: 6,
-    },
-  },
-  {
-    id: 6,
-    user: {
-      name: "MovieFan",
-      avatar: "https://i.pravatar.cc/150?img=6",
-      gender: "♂",
-    },
-    movieThumbnail: "https://via.placeholder.com/80x60/FFEAA7/fff?text=Action",
-    comment:
-      "Phim này hay quá! Diễn viên diễn xuất rất tự nhiên và cốt truyện hấp dẫn.",
-    interactions: {
-      upvotes: 8,
-      downvotes: 1,
-      replies: 3,
-    },
-  },
-];
 
 // Dữ liệu mẫu cho "Bình luận mới"
 const recentComments = [
@@ -308,11 +119,7 @@ const recentComments = [
 ];
 
 const TopComments = memo(() => {
-  const scrollRef = useRef(null);
-  const [canScrollLeft, setCanScrollLeft] = useState(false);
-  const [canScrollRight, setCanScrollRight] = useState(true);
   // Auto-scroll for recent comments
-  const recentViewportRef = useRef(null);
   const recentListRef = useRef(null);
   const [recentIndex, setRecentIndex] = useState(0);
   const [itemStep, setItemStep] = useState(0);
@@ -327,27 +134,6 @@ const TopComments = memo(() => {
     if (gender === "∞")
       return <AllInclusiveIcon sx={{ fontSize: 16, color: "#FFD54F" }} />;
     return <TransgenderIcon sx={{ fontSize: 16, color: "#CE93D8" }} />;
-  };
-
-  const scroll = (direction) => {
-    if (scrollRef.current) {
-      const scrollAmount = 300;
-      const newScrollLeft =
-        scrollRef.current.scrollLeft +
-        (direction === "left" ? -scrollAmount : scrollAmount);
-      scrollRef.current.scrollTo({
-        left: newScrollLeft,
-        behavior: "smooth",
-      });
-    }
-  };
-
-  const handleScroll = () => {
-    if (scrollRef.current) {
-      const { scrollLeft, scrollWidth, clientWidth } = scrollRef.current;
-      setCanScrollLeft(scrollLeft > 0);
-      setCanScrollRight(scrollLeft < scrollWidth - clientWidth - 10);
-    }
   };
 
   // Measure one recent item height + row gap to compute step
@@ -400,41 +186,6 @@ const TopComments = memo(() => {
         disableGutters
         sx={{ px: { xs: 2, sm: 3, md: 6 } }}
       >
-        <SectionHeader>
-          <SectionTitle variant="h3">
-            <EmojiEventsIcon sx={{ fontSize: "2rem", color: "#FFD700" }} />
-            TOP BÌNH LUẬN
-          </SectionTitle>
-        </SectionHeader>
-
-        <CommentsContainer>
-          <NavButton
-            onClick={() => scroll("left")}
-            disabled={!canScrollLeft}
-            size="small"
-          >
-            <KeyboardArrowLeftIcon />
-          </NavButton>
-
-          <ScrollContainer
-            ref={scrollRef}
-            onScroll={handleScroll}
-            sx={{ flex: 1 }}
-          >
-            {sampleComments.map((comment, index) => (
-              <CommentCard key={comment.id} comment={comment} index={index} />
-            ))}
-          </ScrollContainer>
-
-          <NavButton
-            onClick={() => scroll("right")}
-            disabled={!canScrollRight}
-            size="small"
-          >
-            <KeyboardArrowRightIcon />
-          </NavButton>
-        </CommentsContainer>
-
         {/* Bình luận mới */}
         <RecentSection>
           <RecentHeader>
@@ -453,7 +204,6 @@ const TopComments = memo(() => {
           </RecentHeader>
 
           <RecentViewport
-            ref={recentViewportRef}
             sx={{ height: itemHeight ? itemHeight * 4 + rowGap * 3 : "auto" }}
           >
             <RecentList

@@ -297,10 +297,11 @@ export default function Stream() {
     };
   }, [movieId]);
 
-  // Update quality or subtitle options
+  // Update quality or subtitle options using startStreaming API
   const applyQualityOrSubtitleChange = async (next) => {
     if (!movieId) return;
     try {
+      const wasPlaying = isPlaying;
       const payload = {
         movieId,
         quality: next.quality ?? selectedQuality,
@@ -312,17 +313,28 @@ export default function Stream() {
         startPosition: Math.floor(currentTime || 0),
         autoPlay: true,
       };
-      const res = await updateStreamingQuality(payload);
-      setSelectedQuality(res?.selectedQuality ?? payload.quality);
+      const res = await startStreaming(payload);
+      const newQuality = res?.quality ?? res?.selectedQuality ?? payload.quality;
+      setSelectedQuality(newQuality);
       if (res?.selectedSubtitleLanguage)
         setSelectedSubtitleLanguage(res.selectedSubtitleLanguage);
-      if (res?.availableQualities)
+      if (res?.availableQualities && Array.isArray(res.availableQualities))
         setAvailableQualities(res.availableQualities);
       if (res?.availableSubtitles)
         setAvailableSubtitles(res.availableSubtitles);
-      if (res?.streamingUrl) setVideoSrc(res.streamingUrl);
+      if (res?.streamingUrl) {
+        setVideoSrc(res.streamingUrl);
+        // Reload video source to apply new quality
+        const v = videoRef.current;
+        if (v) {
+          v.load();
+          if (wasPlaying) {
+            v.play().catch(() => {});
+          }
+        }
+      }
     } catch (e) {
-      // ignore
+      console.error("Error changing quality:", e);
     }
   };
 
@@ -453,6 +465,79 @@ export default function Stream() {
   const onMouseMovePlayer = () => {
     showUiTemporarily();
   };
+
+  // Keyboard controls
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Ignore if user is typing in an input/textarea
+      const target = e.target;
+      if (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.isContentEditable
+      ) {
+        return;
+      }
+
+      // Prevent default for space to avoid scrolling
+      if (e.code === "Space") {
+        e.preventDefault();
+      }
+
+      switch (e.code) {
+        case "ArrowRight":
+          e.preventDefault();
+          seekBy(10);
+          showUiTemporarily();
+          break;
+        case "ArrowLeft":
+          e.preventDefault();
+          seekBy(-10);
+          showUiTemporarily();
+          break;
+        case "Space":
+          togglePlay();
+          showUiTemporarily();
+          break;
+        case "ArrowUp":
+          e.preventDefault();
+          const v = videoRef.current;
+          if (v) {
+            const newVolume = Math.min(1, Math.max(0, volume + 0.1));
+            v.volume = newVolume;
+            setVolume(newVolume);
+            if (newVolume > 0 && muted) {
+              v.muted = false;
+              setMuted(false);
+            }
+            showUiTemporarily();
+          }
+          break;
+        case "ArrowDown":
+          e.preventDefault();
+          const v2 = videoRef.current;
+          if (v2) {
+            const newVolume = Math.min(1, Math.max(0, volume - 0.1));
+            v2.volume = newVolume;
+            setVolume(newVolume);
+            if (newVolume === 0) {
+              v2.muted = true;
+              setMuted(true);
+            }
+            showUiTemporarily();
+          }
+          break;
+        default:
+          break;
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [volume, muted, duration]);
 
   // Menus anchors
   const [anchorQuality, setAnchorQuality] = useState(null);
@@ -1012,6 +1097,12 @@ export default function Stream() {
               open={Boolean(anchorQuality)}
               onClose={() => setAnchorQuality(null)}
               PaperProps={{ sx: { bgcolor: "#0f1422", color: "#fff" } }}
+              container={
+                isFullscreen
+                  ? document.getElementById("player-container")
+                  : undefined
+              }
+              disablePortal={isFullscreen}
             >
               {(availableQualities?.length
                 ? availableQualities
@@ -1037,6 +1128,12 @@ export default function Stream() {
               PaperProps={{
                 sx: { bgcolor: "#0f1422", color: "#fff", minWidth: 220 },
               }}
+              container={
+                isFullscreen
+                  ? document.getElementById("player-container")
+                  : undefined
+              }
+              disablePortal={isFullscreen}
             >
               <MenuItem disableRipple disableTouchRipple>
                 <Stack direction="row" alignItems="center" spacing={1}>

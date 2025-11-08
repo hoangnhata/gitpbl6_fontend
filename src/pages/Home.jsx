@@ -349,6 +349,7 @@ export default function Home() {
         title="Phim US-UK mới"
         movies={filterByCountry("United States")}
       />
+
       {/* Top Comments Section */}
       <TopComments />
 
