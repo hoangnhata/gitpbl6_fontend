@@ -3,6 +3,7 @@ import { Suspense, lazy } from "react";
 import { Navigate, useRoutes, Outlet } from "react-router-dom";
 // components
 import Loading from "../components/Loading";
+import ProtectedRoute from "../components/ProtectedRoute/ProtectedRoute";
 
 // ----------------------------------------------------------------------
 
@@ -29,7 +30,14 @@ export default function Router() {
         { path: "movie/:id", element: <MovieDetailPage /> },
         { path: "actors", element: <ActorsPage /> },
         { path: "actor/:id", element: <ActorDetailPage /> },
-        { path: "stream/:id", element: <StreamPage /> },
+        {
+          path: "stream/:id",
+          element: (
+            <ProtectedRoute>
+              <StreamPage />
+            </ProtectedRoute>
+          ),
+        },
         { path: "showtime", element: <ShowtimePage /> },
         { path: "login", element: <LoginPage /> },
         { path: "register", element: <RegisterPage /> },

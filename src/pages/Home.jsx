@@ -51,8 +51,8 @@ export default function Home() {
   const handleMovieSelect = useCallback((index) => setActiveIndex(index), []);
 
   const handleSignUp = useCallback(() => {
-    console.log("Sign up clicked");
-  }, []);
+    navigate("/register");
+  }, [navigate]);
   // Fetch trending movies for thumbnails/Hero
   useEffect(() => {
     const fetchTrending = async () => {
@@ -338,16 +338,19 @@ export default function Home() {
       <CatalogSection
         title="Phim Hàn Quốc mới"
         movies={filterByCountry("Korea")}
+        onViewAll={() => navigate("/movies?country=Korea")}
       />
 
       <CatalogSection
         title="Phim Trung Quốc mới"
         movies={filterByCountry("China")}
+        onViewAll={() => navigate("/movies?country=China")}
       />
 
       <CatalogSection
         title="Phim US-UK mới"
         movies={filterByCountry("United States")}
+        onViewAll={() => navigate("/movies?country=United States")}
       />
 
       {/* Top Comments Section */}

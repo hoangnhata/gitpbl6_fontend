@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link as RouterLink, useNavigate } from "react-router-dom";
+import { Link as RouterLink, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import {
   Box,
@@ -238,6 +238,7 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const location = useLocation();
 
   const posters = [
     "https://image.tmdb.org/t/p/w500/sv1xJUazXeYqALzczSZ3O6nkH75.jpg", // Avatar
@@ -289,9 +290,12 @@ export default function Login() {
 
       if (data?.token && data?.user) {
         login(data.user, data.token);
+        // Redirect to the page user was trying to access, or home
+        const from = location.state?.from || "/";
+        navigate(from, { replace: true });
+      } else {
+        navigate("/");
       }
-
-      navigate("/");
     } catch (err) {
       setError("Không thể kết nối máy chủ. Vui lòng thử lại.");
     } finally {

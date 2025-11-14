@@ -428,7 +428,15 @@ const CatalogSection = memo(function CatalogSection({
         <Layout>
           <Sidebar>
             <SectionTitle>{title}</SectionTitle>
-            <ViewAll onClick={onViewAll}>Xem toàn bộ ›</ViewAll>
+            <ViewAll
+              onClick={() => {
+                if (onViewAll) {
+                  onViewAll();
+                }
+              }}
+            >
+              Xem toàn bộ ›
+            </ViewAll>
           </Sidebar>
 
           <ScrollWrap>
