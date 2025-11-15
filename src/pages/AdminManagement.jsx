@@ -38,6 +38,7 @@ import {
   Stack,
   Tooltip,
   Autocomplete,
+  Pagination,
 } from "@mui/material";
 import TmdbMovieSearch from "../components/TmdbMovieSearch";
 import {
@@ -927,28 +928,117 @@ function ActorsManagement() {
   const [page, setPage] = useState(0);
   const [size] = useState(20);
   const [viewMode, setViewMode] = useState("grid");
+  const [totalPages, setTotalPages] = useState(0);
+  const [totalElements, setTotalElements] = useState(0);
+  const [usePagination, setUsePagination] = useState(true); // Toggle pagination
+  const [allActors, setAllActors] = useState([]); // Store all actors for client-side pagination
 
   useEffect(() => {
     loadActors();
-  }, [page]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, usePagination]);
 
   const loadActors = async () => {
     try {
       setLoading(true);
-      const res = await adminAPI.getActors(page, size);
-      const list = Array.isArray(res) ? res : res?.content || res?.data || [];
-      setActors(list);
+      setError("");
+      let res;
+
+      if (usePagination) {
+        try {
+          // Try with pagination first
+          res = await adminAPI.getActors(page, size);
+        } catch (paginationError) {
+          // If pagination fails, disable it and load all
+          console.warn(
+            "Pagination failed, loading all actors:",
+            paginationError
+          );
+          setUsePagination(false);
+          res = await adminAPI.getActors(0, 1000);
+        }
+      } else {
+        // Load all without pagination (only once)
+        if (allActors.length === 0) {
+          res = await adminAPI.getActors(0, 1000);
+        } else {
+          // Use cached data for client-side pagination
+          const startIndex = page * size;
+          const endIndex = startIndex + size;
+          setActors(allActors.slice(startIndex, endIndex));
+          setTotalPages(Math.ceil(allActors.length / size));
+          setTotalElements(allActors.length);
+          setLoading(false);
+          return;
+        }
+      }
+
+      // Handle paginated response
+      if (res?.content) {
+        const allActors = res.content;
+        if (usePagination) {
+          setActors(allActors);
+          setTotalPages(res.totalPages || 0);
+          setTotalElements(res.totalElements || 0);
+        } else {
+          // Client-side pagination
+          setAllActors(allActors);
+          const startIndex = page * size;
+          const endIndex = startIndex + size;
+          setActors(allActors.slice(startIndex, endIndex));
+          setTotalPages(Math.ceil(allActors.length / size));
+          setTotalElements(allActors.length);
+        }
+      } else if (res?.data?.content) {
+        const allActorsList = res.data.content;
+        if (usePagination) {
+          setActors(allActorsList);
+          setTotalPages(res.data.totalPages || 0);
+          setTotalElements(res.data.totalElements || 0);
+        } else {
+          setAllActors(allActorsList);
+          const startIndex = page * size;
+          const endIndex = startIndex + size;
+          setActors(allActorsList.slice(startIndex, endIndex));
+          setTotalPages(Math.ceil(allActorsList.length / size));
+          setTotalElements(allActorsList.length);
+        }
+      } else {
+        const list = Array.isArray(res) ? res : res?.data || [];
+        if (usePagination) {
+          setActors(list);
+          setTotalPages(1);
+          setTotalElements(list.length);
+        } else {
+          setAllActors(list);
+          const startIndex = page * size;
+          const endIndex = startIndex + size;
+          setActors(list.slice(startIndex, endIndex));
+          setTotalPages(Math.ceil(list.length / size));
+          setTotalElements(list.length);
+        }
+      }
     } catch (err) {
+      console.error("Error loading actors:", err);
       setError(err.message || "Failed to load actors");
+      setActors([]);
+      setTotalPages(0);
+      setTotalElements(0);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handlePageChange = (event, newPage) => {
+    setPage(newPage - 1); // MUI Pagination uses 1-based indexing
   };
 
   const handleCreated = () => {
     setShowCreate(false);
     setEditing(null);
     setSuccess("Actor saved successfully");
+    setAllActors([]); // Clear cache to reload
+    setPage(0); // Reset to first page
     loadActors();
   };
 
@@ -956,6 +1046,7 @@ function ActorsManagement() {
     try {
       await adminAPI.deleteActor(actor.id);
       setSuccess("Actor deleted");
+      setAllActors([]); // Clear cache to reload
       loadActors();
     } catch (err) {
       setError(err.message || "Failed to delete actor");
@@ -1081,63 +1172,96 @@ function ActorsManagement() {
           ))}
         </Grid>
       ) : (
-        <TableContainer component={Paper}>
-          <Table>
-            <TableHead>
-              <TableRow>
-                <TableCell>Avatar</TableCell>
-                <TableCell>Name</TableCell>
-                <TableCell>DOB</TableCell>
-                <TableCell>Actions</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {actors.map((actor) => (
-                <TableRow key={actor.id} hover>
-                  <TableCell>
-                    <Avatar
-                      src={actor.imageUrl || actor.avatarUrl}
-                      sx={{ width: 50, height: 50 }}
-                    />
-                  </TableCell>
-                  <TableCell>{actor.name}</TableCell>
-                  <TableCell>{actor.dob || ""}</TableCell>
-                  <TableCell>
-                    <Box sx={{ display: "flex", gap: 0.5 }}>
-                      <Tooltip title="View">
-                        <IconButton
-                          size="small"
-                          color="primary"
-                          onClick={() => setViewing(actor)}
-                        >
-                          <ViewIcon />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Edit">
-                        <IconButton
-                          size="small"
-                          color="secondary"
-                          onClick={() => setEditing(actor)}
-                        >
-                          <EditIcon />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Delete">
-                        <IconButton
-                          size="small"
-                          color="error"
-                          onClick={() => handleDeleted(actor)}
-                        >
-                          <DeleteIcon />
-                        </IconButton>
-                      </Tooltip>
-                    </Box>
-                  </TableCell>
+        <>
+          <TableContainer component={Paper}>
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Avatar</TableCell>
+                  <TableCell>Name</TableCell>
+                  <TableCell>DOB</TableCell>
+                  <TableCell>Actions</TableCell>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
+              </TableHead>
+              <TableBody>
+                {actors.map((actor) => (
+                  <TableRow key={actor.id} hover>
+                    <TableCell>
+                      <Avatar
+                        src={actor.imageUrl || actor.avatarUrl}
+                        sx={{ width: 50, height: 50 }}
+                      />
+                    </TableCell>
+                    <TableCell>{actor.name}</TableCell>
+                    <TableCell>{actor.dob || ""}</TableCell>
+                    <TableCell>
+                      <Box sx={{ display: "flex", gap: 0.5 }}>
+                        <Tooltip title="View">
+                          <IconButton
+                            size="small"
+                            color="primary"
+                            onClick={() => setViewing(actor)}
+                          >
+                            <ViewIcon />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Edit">
+                          <IconButton
+                            size="small"
+                            color="secondary"
+                            onClick={() => setEditing(actor)}
+                          >
+                            <EditIcon />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Delete">
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={() => handleDeleted(actor)}
+                          >
+                            <DeleteIcon />
+                          </IconButton>
+                        </Tooltip>
+                      </Box>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+          {totalPages > 1 && (
+            <Box sx={{ display: "flex", justifyContent: "center", mt: 3 }}>
+              <Pagination
+                count={totalPages}
+                page={page + 1}
+                onChange={handlePageChange}
+                color="primary"
+                showFirstButton
+                showLastButton
+              />
+            </Box>
+          )}
+        </>
+      )}
+      {viewMode === "grid" && totalPages > 1 && (
+        <Box sx={{ display: "flex", justifyContent: "center", mt: 3 }}>
+          <Pagination
+            count={totalPages}
+            page={page + 1}
+            onChange={handlePageChange}
+            color="primary"
+            showFirstButton
+            showLastButton
+          />
+        </Box>
+      )}
+      {totalPages > 0 && (
+        <Box sx={{ display: "flex", justifyContent: "center", mt: 2 }}>
+          <Typography variant="body2" color="text.secondary">
+            Showing {actors.length} of {totalElements} actors
+          </Typography>
+        </Box>
       )}
     </Box>
   );
@@ -2546,26 +2670,116 @@ function MoviesManagement() {
     open: false,
     movie: null,
   });
+  const [page, setPage] = useState(0);
+  const [size] = useState(20);
+  const [totalPages, setTotalPages] = useState(0);
+  const [totalElements, setTotalElements] = useState(0);
+  const [usePagination, setUsePagination] = useState(true); // Toggle pagination
+  const [allMovies, setAllMovies] = useState([]); // Store all movies for client-side pagination
 
   useEffect(() => {
     loadMovies();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, usePagination]);
 
   const loadMovies = async () => {
     try {
       setLoading(true);
-      const response = await adminAPI.getMovies();
-      // API trả về array trực tiếp hoặc object có property content
-      setMovies(Array.isArray(response) ? response : response.content || []);
+      setError("");
+      let response;
+
+      if (usePagination) {
+        try {
+          // Try with pagination first
+          response = await adminAPI.getMovies(page, size);
+        } catch (paginationError) {
+          // If pagination fails, disable it and load all
+          console.warn(
+            "Pagination failed, loading all movies:",
+            paginationError
+          );
+          setUsePagination(false);
+          response = await adminAPI.getMovies();
+        }
+      } else {
+        // Load all without pagination (only once)
+        if (allMovies.length === 0) {
+          response = await adminAPI.getMovies();
+        } else {
+          // Use cached data for client-side pagination
+          const startIndex = page * size;
+          const endIndex = startIndex + size;
+          setMovies(allMovies.slice(startIndex, endIndex));
+          setTotalPages(Math.ceil(allMovies.length / size));
+          setTotalElements(allMovies.length);
+          setLoading(false);
+          return;
+        }
+      }
+
+      // Handle paginated response
+      if (response?.content) {
+        const allMoviesList = response.content;
+        if (usePagination) {
+          setMovies(allMoviesList);
+          setTotalPages(response.totalPages || 0);
+          setTotalElements(response.totalElements || 0);
+        } else {
+          setAllMovies(allMoviesList);
+          const startIndex = page * size;
+          const endIndex = startIndex + size;
+          setMovies(allMoviesList.slice(startIndex, endIndex));
+          setTotalPages(Math.ceil(allMoviesList.length / size));
+          setTotalElements(allMoviesList.length);
+        }
+      } else if (response?.data?.content) {
+        const allMoviesList = response.data.content;
+        if (usePagination) {
+          setMovies(allMoviesList);
+          setTotalPages(response.data.totalPages || 0);
+          setTotalElements(response.data.totalElements || 0);
+        } else {
+          setAllMovies(allMoviesList);
+          const startIndex = page * size;
+          const endIndex = startIndex + size;
+          setMovies(allMoviesList.slice(startIndex, endIndex));
+          setTotalPages(Math.ceil(allMoviesList.length / size));
+          setTotalElements(allMoviesList.length);
+        }
+      } else {
+        const list = Array.isArray(response) ? response : response?.data || [];
+        if (usePagination) {
+          setMovies(list);
+          setTotalPages(1);
+          setTotalElements(list.length);
+        } else {
+          setAllMovies(list);
+          const startIndex = page * size;
+          const endIndex = startIndex + size;
+          setMovies(list.slice(startIndex, endIndex));
+          setTotalPages(Math.ceil(list.length / size));
+          setTotalElements(list.length);
+        }
+      }
     } catch (err) {
+      console.error("Error loading movies:", err);
       setError(err.message || "Failed to load movies");
+      setMovies([]);
+      setTotalPages(0);
+      setTotalElements(0);
     } finally {
       setLoading(false);
     }
   };
 
+  const handlePageChange = (event, newPage) => {
+    setPage(newPage - 1); // MUI Pagination uses 1-based indexing
+  };
+
   const handleCreateSuccess = () => {
     setShowCreateForm(false);
+    setAllMovies([]); // Clear cache to reload
+    setPage(0); // Reset to first page
     loadMovies();
   };
 
@@ -2584,7 +2798,18 @@ function MoviesManagement() {
   const handleToggleAvailability = async (movie) => {
     try {
       await adminAPI.toggleMovieAvailability(movie.id, !movie.isAvailable);
-      loadMovies();
+      // Update local state if using client-side pagination
+      if (!usePagination && allMovies.length > 0) {
+        const updatedMovies = allMovies.map((m) =>
+          m.id === movie.id ? { ...m, isAvailable: !movie.isAvailable } : m
+        );
+        setAllMovies(updatedMovies);
+        const startIndex = page * size;
+        const endIndex = startIndex + size;
+        setMovies(updatedMovies.slice(startIndex, endIndex));
+      } else {
+        loadMovies();
+      }
     } catch (err) {
       console.error("Failed to toggle movie availability:", err);
     }
@@ -2594,6 +2819,7 @@ function MoviesManagement() {
     try {
       await adminAPI.deleteMovie(deleteDialog.movie.id);
       setDeleteDialog({ open: false, movie: null });
+      setAllMovies([]); // Clear cache to reload
       loadMovies();
     } catch (err) {
       console.error("Failed to delete movie:", err);
@@ -2602,6 +2828,7 @@ function MoviesManagement() {
 
   const handleEditSuccess = () => {
     setEditingMovie(null);
+    setAllMovies([]); // Clear cache to reload
     loadMovies();
   };
 
@@ -2811,111 +3038,148 @@ function MoviesManagement() {
           ))}
         </Grid>
       ) : (
-        <TableContainer component={Paper}>
-          <Table>
-            <TableHead>
-              <TableRow>
-                <TableCell>Poster</TableCell>
-                <TableCell>Title</TableCell>
-                <TableCell>Year</TableCell>
-                <TableCell>Categories</TableCell>
-                <TableCell>Available</TableCell>
-                <TableCell>Actions</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {movies.map((movie) => (
-                <TableRow key={movie.id} hover>
-                  <TableCell>
-                    <Avatar
-                      src={movie.posterUrl || movie.thumbnailUrl}
-                      alt={movie.title}
-                      variant="rounded"
-                      sx={{ width: 60, height: 80 }}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="subtitle2" fontWeight="bold">
-                      {movie.title}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {movie.synopsis?.substring(0, 50)}...
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2">{movie.year}</Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
-                      {movie.genres?.slice(0, 2).map((genre, index) => (
-                        <Chip
-                          key={index}
-                          label={genre}
-                          size="small"
-                          color="primary"
-                          variant="outlined"
-                        />
-                      ))}
-                      {movie.genres?.length > 2 && (
-                        <Chip
-                          label={`+${movie.genres.length - 2}`}
-                          size="small"
-                          color="default"
-                          variant="outlined"
-                        />
-                      )}
-                    </Box>
-                  </TableCell>
-                  <TableCell>
-                    <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
-                      <Chip
-                        label={movie.isAvailable ? "Available" : "Unavailable"}
-                        color={movie.isAvailable ? "success" : "default"}
-                        size="small"
-                      />
-                      <Switch
-                        checked={movie.isAvailable}
-                        onChange={() => handleToggleAvailability(movie)}
-                        size="small"
-                      />
-                    </Box>
-                  </TableCell>
-                  <TableCell>
-                    <Box sx={{ display: "flex", gap: 0.5 }}>
-                      <Tooltip title="View Details">
-                        <IconButton
-                          size="small"
-                          color="primary"
-                          onClick={() => handleViewMovie(movie)}
-                        >
-                          <ViewIcon />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Edit Movie">
-                        <IconButton
-                          size="small"
-                          color="secondary"
-                          onClick={() => handleEditMovie(movie)}
-                        >
-                          <EditIcon />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Delete Movie">
-                        <IconButton
-                          size="small"
-                          color="error"
-                          onClick={() => handleDeleteMovie(movie)}
-                        >
-                          <DeleteIcon />
-                        </IconButton>
-                      </Tooltip>
-                    </Box>
-                  </TableCell>
+        <>
+          <TableContainer component={Paper}>
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Poster</TableCell>
+                  <TableCell>Title</TableCell>
+                  <TableCell>Year</TableCell>
+                  <TableCell>Categories</TableCell>
+                  <TableCell>Available</TableCell>
+                  <TableCell>Actions</TableCell>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
+              </TableHead>
+              <TableBody>
+                {movies.map((movie) => (
+                  <TableRow key={movie.id} hover>
+                    <TableCell>
+                      <Avatar
+                        src={movie.posterUrl || movie.thumbnailUrl}
+                        alt={movie.title}
+                        variant="rounded"
+                        sx={{ width: 60, height: 80 }}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="subtitle2" fontWeight="bold">
+                        {movie.title}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {movie.synopsis?.substring(0, 50)}...
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2">{movie.year}</Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
+                        {movie.genres?.slice(0, 2).map((genre, index) => (
+                          <Chip
+                            key={index}
+                            label={genre}
+                            size="small"
+                            color="primary"
+                            variant="outlined"
+                          />
+                        ))}
+                        {movie.genres?.length > 2 && (
+                          <Chip
+                            label={`+${movie.genres.length - 2}`}
+                            size="small"
+                            color="default"
+                            variant="outlined"
+                          />
+                        )}
+                      </Box>
+                    </TableCell>
+                    <TableCell>
+                      <Box
+                        sx={{ display: "flex", gap: 1, alignItems: "center" }}
+                      >
+                        <Chip
+                          label={
+                            movie.isAvailable ? "Available" : "Unavailable"
+                          }
+                          color={movie.isAvailable ? "success" : "default"}
+                          size="small"
+                        />
+                        <Switch
+                          checked={movie.isAvailable}
+                          onChange={() => handleToggleAvailability(movie)}
+                          size="small"
+                        />
+                      </Box>
+                    </TableCell>
+                    <TableCell>
+                      <Box sx={{ display: "flex", gap: 0.5 }}>
+                        <Tooltip title="View Details">
+                          <IconButton
+                            size="small"
+                            color="primary"
+                            onClick={() => handleViewMovie(movie)}
+                          >
+                            <ViewIcon />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Edit Movie">
+                          <IconButton
+                            size="small"
+                            color="secondary"
+                            onClick={() => handleEditMovie(movie)}
+                          >
+                            <EditIcon />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Delete Movie">
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={() => handleDeleteMovie(movie)}
+                          >
+                            <DeleteIcon />
+                          </IconButton>
+                        </Tooltip>
+                      </Box>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+          {totalPages > 1 && (
+            <Box sx={{ display: "flex", justifyContent: "center", mt: 3 }}>
+              <Pagination
+                count={totalPages}
+                page={page + 1}
+                onChange={handlePageChange}
+                color="primary"
+                showFirstButton
+                showLastButton
+              />
+            </Box>
+          )}
+        </>
+      )}
+      {viewMode === "grid" && totalPages > 1 && (
+        <Box sx={{ display: "flex", justifyContent: "center", mt: 3 }}>
+          <Pagination
+            count={totalPages}
+            page={page + 1}
+            onChange={handlePageChange}
+            color="primary"
+            showFirstButton
+            showLastButton
+          />
+        </Box>
+      )}
+      {totalPages > 0 && (
+        <Box sx={{ display: "flex", justifyContent: "center", mt: 2 }}>
+          <Typography variant="body2" color="text.secondary">
+            Showing {movies.length} of {totalElements} movies
+          </Typography>
+        </Box>
       )}
 
       {/* Delete Confirmation Dialog */}
@@ -4333,7 +4597,9 @@ function DashboardAnalytics() {
   const [monthlyStats, setMonthlyStats] = useState([]);
   const currentDate = new Date();
   const [selectedYear, setSelectedYear] = useState(currentDate.getFullYear());
-  const [selectedMonth, setSelectedMonth] = useState(currentDate.getMonth() + 1); // Current month (1-12)
+  const [selectedMonth, setSelectedMonth] = useState(
+    currentDate.getMonth() + 1
+  ); // Current month (1-12)
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -4401,7 +4667,10 @@ function DashboardAnalytics() {
       // After loading, ensure selected month exists in data
       // If current year and month is selected, check if it exists
       const now = new Date();
-      if (selectedYear === now.getFullYear() && typeof selectedMonth === 'number') {
+      if (
+        selectedYear === now.getFullYear() &&
+        typeof selectedMonth === "number"
+      ) {
         const monthExists = stats.some((m) => m.month === selectedMonth);
         if (!monthExists && stats.length > 0) {
           // If current month doesn't exist, select the first available month
@@ -4463,9 +4732,7 @@ function DashboardAnalytics() {
     if (selectedMonth === "all") {
       return monthlyStats.filter((m) => m.month);
     }
-    return monthlyStats.filter(
-      (m) => m.month === Number(selectedMonth)
-    );
+    return monthlyStats.filter((m) => m.month === Number(selectedMonth));
   };
 
   const getInitials = (name) => {
@@ -4597,7 +4864,8 @@ function DashboardAnalytics() {
                           {movie.title}
                         </Typography>
                         <Typography variant="body2" color="text.secondary">
-                          {movie.viewCount || 0} views • {movie.countryName || ""}
+                          {movie.viewCount || 0} views •{" "}
+                          {movie.countryName || ""}
                         </Typography>
                         {movie.categories && movie.categories.length > 0 && (
                           <Box sx={{ display: "flex", gap: 0.5, mt: 0.5 }}>
@@ -4617,11 +4885,7 @@ function DashboardAnalytics() {
                         <Chip label="Featured" color="primary" size="small" />
                       )}
                       {movie.isTrending && (
-                        <Chip
-                          label="Trending"
-                          color="secondary"
-                          size="small"
-                        />
+                        <Chip label="Trending" color="secondary" size="small" />
                       )}
                     </Box>
                   ))}
@@ -4721,7 +4985,10 @@ function DashboardAnalytics() {
                           </Typography>
                           <Grid container spacing={1}>
                             <Grid item xs={6}>
-                              <Typography variant="caption" color="text.secondary">
+                              <Typography
+                                variant="caption"
+                                color="text.secondary"
+                              >
                                 New Users
                               </Typography>
                               <Typography variant="body2" fontWeight="bold">
@@ -4729,7 +4996,10 @@ function DashboardAnalytics() {
                               </Typography>
                             </Grid>
                             <Grid item xs={6}>
-                              <Typography variant="caption" color="text.secondary">
+                              <Typography
+                                variant="caption"
+                                color="text.secondary"
+                              >
                                 New Movies
                               </Typography>
                               <Typography variant="body2" fontWeight="bold">
@@ -4737,7 +5007,10 @@ function DashboardAnalytics() {
                               </Typography>
                             </Grid>
                             <Grid item xs={6}>
-                              <Typography variant="caption" color="text.secondary">
+                              <Typography
+                                variant="caption"
+                                color="text.secondary"
+                              >
                                 New Comments
                               </Typography>
                               <Typography variant="body2" fontWeight="bold">
@@ -4745,7 +5018,10 @@ function DashboardAnalytics() {
                               </Typography>
                             </Grid>
                             <Grid item xs={6}>
-                              <Typography variant="caption" color="text.secondary">
+                              <Typography
+                                variant="caption"
+                                color="text.secondary"
+                              >
                                 Total Views
                               </Typography>
                               <Typography variant="body2" fontWeight="bold">
@@ -4753,7 +5029,10 @@ function DashboardAnalytics() {
                               </Typography>
                             </Grid>
                             <Grid item xs={6}>
-                              <Typography variant="caption" color="text.secondary">
+                              <Typography
+                                variant="caption"
+                                color="text.secondary"
+                              >
                                 Revenue
                               </Typography>
                               <Typography variant="body2" fontWeight="bold">
@@ -4832,7 +5111,10 @@ function DashboardAnalytics() {
                               >
                                 @{user.username}
                               </Typography>
-                              <Typography variant="caption" color="text.secondary">
+                              <Typography
+                                variant="caption"
+                                color="text.secondary"
+                              >
                                 {user.email}
                               </Typography>
                               <Box sx={{ display: "flex", gap: 0.5, mt: 0.5 }}>
@@ -4841,7 +5123,9 @@ function DashboardAnalytics() {
                                     key={idx}
                                     label={role}
                                     size="small"
-                                    color={role === "ADMIN" ? "error" : "primary"}
+                                    color={
+                                      role === "ADMIN" ? "error" : "primary"
+                                    }
                                     variant="outlined"
                                   />
                                 ))}
@@ -4864,7 +5148,10 @@ function DashboardAnalytics() {
                             }}
                           >
                             <Box>
-                              <Typography variant="caption" color="text.secondary">
+                              <Typography
+                                variant="caption"
+                                color="text.secondary"
+                              >
                                 Comments
                               </Typography>
                               <Typography variant="body2" fontWeight="bold">
@@ -4872,7 +5159,10 @@ function DashboardAnalytics() {
                               </Typography>
                             </Box>
                             <Box>
-                              <Typography variant="caption" color="text.secondary">
+                              <Typography
+                                variant="caption"
+                                color="text.secondary"
+                              >
                                 Movies
                               </Typography>
                               <Typography variant="body2" fontWeight="bold">
