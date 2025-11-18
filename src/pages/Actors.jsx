@@ -9,6 +9,7 @@ import {
   IconButton,
   Tooltip,
   Chip,
+  Pagination,
 } from "@mui/material";
 import { styled } from "@mui/material/styles";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -60,27 +61,39 @@ export default function Actors() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalElements, setTotalElements] = useState(0);
   const pageRef = useRef(0);
   const fileInputRef = useRef(null);
   const [imageSearching, setImageSearching] = useState(false);
   const [imagePreviewUrl, setImagePreviewUrl] = useState("");
   const [imageName, setImageName] = useState("");
   const q = params.get("q") || "";
+  const itemsPerPage = 20;
 
   const debouncedQuery = useDebounce(q, 300);
 
   useEffect(() => {
     if (!imageSearching) {
+      setCurrentPage(1);
       load(0);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedQuery]);
 
+  useEffect(() => {
+    if (!imageSearching && currentPage > 1) {
+      load(currentPage - 1);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPage]);
+
   async function load(page) {
     try {
       setLoading(true);
       setError("");
-      const data = await listActors({ q: debouncedQuery, page, size: 24 });
+      const data = await listActors({ q: debouncedQuery, page, size: itemsPerPage });
       const list = Array.isArray(data?.content)
         ? data.content
         : Array.isArray(data)
@@ -88,6 +101,22 @@ export default function Actors() {
         : [];
       setItems(list);
       pageRef.current = page;
+      
+      // Update pagination info
+      if (data?.totalPages != null) {
+        setTotalPages(data.totalPages);
+      } else if (data?.totalElements != null) {
+        setTotalPages(Math.ceil(data.totalElements / itemsPerPage));
+      } else {
+        // Estimate based on current page and items count
+        setTotalPages(list.length < itemsPerPage ? page + 1 : page + 2);
+      }
+      
+      if (data?.totalElements != null) {
+        setTotalElements(data.totalElements);
+      } else {
+        setTotalElements(list.length);
+      }
     } catch (e) {
       setError(e?.message || "Không thể tải danh sách diễn viên");
     } finally {
@@ -105,8 +134,9 @@ export default function Actors() {
     setImageSearching(false);
     setImagePreviewUrl("");
     setImageName("");
+    setCurrentPage(1);
     // Re-run text search
-    load(pageRef.current || 0);
+    load(0);
   }
 
   async function handleFileChange(e) {
@@ -137,6 +167,9 @@ export default function Actors() {
       console.log("[DB] matched actors:", dbActors);
       setItems(dbActors);
       pageRef.current = 0;
+      setCurrentPage(1);
+      setTotalPages(1);
+      setTotalElements(dbActors.length);
     } catch (e) {
       setError(e?.message || "Không thể nhận diện diễn viên từ ảnh");
     } finally {
@@ -308,6 +341,58 @@ export default function Actors() {
             </Grid>
           ))}
         </Grid>
+
+        {/* Pagination */}
+        {!imageSearching && totalPages > 1 && (
+          <Box sx={{ display: "flex", justifyContent: "center", mt: 4, mb: 2 }}>
+            <Pagination
+              count={totalPages}
+              page={currentPage}
+              onChange={(e, newPage) => {
+                setCurrentPage(newPage);
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+              color="primary"
+              size="large"
+              sx={{
+                "& .MuiPaginationItem-root": {
+                  color: "rgba(255,255,255,0.7)",
+                  "&.Mui-selected": {
+                    background: "rgba(255,215,0,0.9)",
+                    color: "#000",
+                    fontWeight: 600,
+                    "&:hover": {
+                      background: "#FFD700",
+                    },
+                  },
+                  "&:hover": {
+                    background: "rgba(255,215,0,0.2)",
+                    color: "#FFD700",
+                  },
+                },
+                "& .MuiPaginationItem-ellipsis": {
+                  color: "rgba(255,255,255,0.5)",
+                },
+              }}
+            />
+          </Box>
+        )}
+
+        {/* Pagination info */}
+        {!imageSearching && totalElements > 0 && (
+          <Typography
+            variant="body2"
+            sx={{
+              color: "rgba(255,255,255,0.6)",
+              textAlign: "center",
+              mt: 2,
+              mb: 2,
+            }}
+          >
+            Hiển thị {items.length} / {totalElements} diễn viên
+            {totalPages > 1 && ` (Trang ${currentPage}/${totalPages})`}
+          </Typography>
+        )}
       </Container>
     </PageContainer>
   );

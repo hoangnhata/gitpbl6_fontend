@@ -18,6 +18,7 @@ import {
   Select,
   MenuItem,
   TextField,
+  Pagination,
 } from "@mui/material";
 import {
   PlayArrow as PlayIcon,
@@ -54,6 +55,8 @@ const Movies = () => {
   const [isSearching, setIsSearching] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [searchMode, setSearchMode] = useState(null); // 'movie' | 'actor' | 'director'
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 24;
 
   // Load movies from now-showing API
   useEffect(() => {
@@ -190,6 +193,7 @@ const Movies = () => {
     }
 
     setFilteredMovies(current);
+    setCurrentPage(1); // Reset to page 1 when filters change
   }, [movies, filters]);
 
   // Disable server-side search - only show now-showing movies
@@ -384,6 +388,12 @@ const Movies = () => {
   const uniqueCountries = [
     ...new Set(movies.map((movie) => movie.country).filter(Boolean)),
   ].sort((a, b) => String(a).localeCompare(String(b), "vi"));
+
+  // Calculate pagination
+  const totalPages = Math.ceil(filteredMovies.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedMovies = filteredMovies.slice(startIndex, endIndex);
 
   if (loading && !shouldServerSearch) {
     return (
@@ -718,18 +728,19 @@ const Movies = () => {
               fontSize: "0.9rem",
             }}
           >
-            Hiển thị {filteredMovies.length} phim
+            Hiển thị {paginatedMovies.length} / {filteredMovies.length} phim
             {(filters.search ||
               filters.genre ||
               filters.year ||
               filters.country) &&
               " (đã lọc)"}
+            {totalPages > 1 && ` - Trang ${currentPage}/${totalPages}`}
           </Typography>
         </Box>
 
         {/* Movies Grid */}
         <Grid container spacing={3}>
-          {filteredMovies.map((movie) => (
+          {paginatedMovies.map((movie) => (
             <Grid item xs={6} sm={4} md={3} lg={2.4} xl={2} key={movie.id}>
               <Card
                 sx={{
@@ -882,6 +893,42 @@ const Movies = () => {
             </Grid>
           ))}
         </Grid>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <Box sx={{ display: "flex", justifyContent: "center", mt: 6, mb: 2 }}>
+            <Pagination
+              count={totalPages}
+              page={currentPage}
+              onChange={(e, newPage) => {
+                setCurrentPage(newPage);
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+              color="primary"
+              size="large"
+              sx={{
+                "& .MuiPaginationItem-root": {
+                  color: "rgba(255,255,255,0.7)",
+                  "&.Mui-selected": {
+                    background: "rgba(255,215,0,0.9)",
+                    color: "#000",
+                    fontWeight: 600,
+                    "&:hover": {
+                      background: "#FFD700",
+                    },
+                  },
+                  "&:hover": {
+                    background: "rgba(255,215,0,0.2)",
+                    color: "#FFD700",
+                  },
+                },
+                "& .MuiPaginationItem-ellipsis": {
+                  color: "rgba(255,255,255,0.5)",
+                },
+              }}
+            />
+          </Box>
+        )}
 
         {/* Load More Button */}
         {shouldServerSearch && hasMore && (
