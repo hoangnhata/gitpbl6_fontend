@@ -52,15 +52,24 @@ export async function recognizeActorsByImage(file, { topK = 12 } = {}) {
   const form = new FormData();
   form.append("image", file);
   form.append("topK", String(topK));
-  const response = await fetch(buildAiUrl(`/actors/recognize`), {
+  
+  const url = buildAiUrl(`/actors/recognize`);
+  // eslint-disable-next-line no-console
+  console.log("[AI] Sending request to:", url);
+  // eslint-disable-next-line no-console
+  console.log("[AI] AI_BASE_URL from env:", import.meta?.env?.VITE_AI_BASE_URL || "not set (using /ai)");
+  
+  const response = await fetch(url, {
     method: "POST",
     body: form,
   });
+  
+  // eslint-disable-next-line no-console
+  console.log("[AI] Response status:", response.status, response.statusText);
+  
   const payload = await handleResponse(response);
-  try {
-    // eslint-disable-next-line no-console
-    console.log("[AI] recognizeActorsByImage response:", payload);
-  } catch (_) {}
+  // eslint-disable-next-line no-console
+  console.log("[AI] recognizeActorsByImage response:", payload);
   return payload;
 }
 
@@ -148,3 +157,4 @@ export async function searchActorsByNames(names = []) {
   }
   return results;
 }
+

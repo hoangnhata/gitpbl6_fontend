@@ -1,5 +1,4 @@
 import io
-import json
 import os
 from typing import List, Dict, Any, Optional
 import logging
@@ -9,11 +8,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
 import httpx
 
-# Optional heavy deps imported lazily on startup to keep import cost lower
 import torch
-import numpy as np
 from torchvision import transforms, models
 import torch.nn as nn
+from mtcnn import MTCNN
+import cv2
+import numpy as np
 
 
 APP = FastAPI(title="Movie App Recognition API")
@@ -29,31 +29,31 @@ APP.add_middleware(
 )
 
 
+
 MODEL = None
+FACE_DETECTOR = None
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-DEFAULT_INPUT_SIZE = 112
-DEFAULT_MEAN = [0.5, 0.5, 0.5]
-DEFAULT_STD = [0.5, 0.5, 0.5]
+INPUT_SIZE = 112
 TRANSFORM = None
 LABELS: Dict[int, Dict[str, Any]] = {}
+LABELS_JSON: Dict[str, Dict[str, Any]] = {}
 MOVIE_API_BASE = os.getenv("MOVIE_API_BASE", "https://api.phimnhalam.website/api")
 
 
-def _make_transform(input_size: int, mean=None, std=None):
-    norm_mean = mean if mean is not None else [0.485, 0.456, 0.406]
-    norm_std = std if std is not None else [0.229, 0.224, 0.225]
+def _make_transform():
     return transforms.Compose([
         transforms.Resize(256),
-        transforms.CenterCrop(input_size),
+        transforms.CenterCrop(224),
+        transforms.Resize((112, 112)),
         transforms.ToTensor(),
-        transforms.Normalize(mean=norm_mean, std=norm_std),
+        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
     ])
 
 
 def _ensure_transform() -> None:
     global TRANSFORM
     if TRANSFORM is None:
-        TRANSFORM = _make_transform(DEFAULT_INPUT_SIZE)
+        TRANSFORM = _make_transform()
 
 
 def _project_root() -> str:
@@ -61,312 +61,117 @@ def _project_root() -> str:
 
 
 def load_labels() -> None:
-    global LABELS
-    # Prefer label_encoder.pkl from training to ensure class order alignment
+    global LABELS, LABELS_JSON
+    import pickle
+    import json
+    
     enc_paths = [
-        os.path.join(_project_root(), "label_encoder.pkl"),
-        os.path.join(os.path.dirname(__file__), "label_encoder.pkl"),
+        os.path.join(_project_root(), "class_names.pkl"),
+        os.path.join(os.path.dirname(__file__), "class_names.pkl"),
     ]
+    
     for p in enc_paths:
         if os.path.exists(p):
             try:
-                import pickle
-
                 with open(p, "rb") as f:
-                    name_to_idx = pickle.load(f)
-                # Build index -> name list in order of class index
-                by_idx = {int(v): str(k) for k, v in name_to_idx.items()}
-                norm: Dict[int, Dict[str, Any]] = {}
-                for idx in sorted(by_idx.keys()):
-                    raw_name = by_idx[idx]
-                    # Normalize name: replace _ with space, strip trailing underscores
-                    pretty = raw_name.replace("_", " ").strip().rstrip("_").strip()
-                    # Fix special cases
-                    if pretty.lower() == "ai pacino":
-                        pretty = "Al Pacino"
-                    elif pretty.lower() == "gwyneth paltrow":
-                        pretty = "Gwyneth Paltrow"
-                    # Capitalize properly (title case)
-                    words = pretty.split()
-                    if len(words) > 0:
-                        # Keep hyphenated names as-is (e.g., "Gordon-Levitt")
-                        pretty = " ".join(word.title() if "-" not in word else word for word in words)
-                    norm[idx] = {"id": idx, "name": pretty}
-                LABELS = norm
-                LOGGER.info("Loaded labels from %s (classes=%s)", p, len(LABELS))
-                return
+                    label_names = pickle.load(f)
+                
+                if isinstance(label_names, list):
+                    norm: Dict[int, Dict[str, Any]] = {}
+                    for idx, raw_name in enumerate(label_names):
+                        pretty = raw_name.replace("_", " ").strip()
+                        if pretty.lower() == "ai pacino":
+                            pretty = "Al Pacino"
+                        if pretty.lower() == "gwyneth paltrow":
+                            pretty = "Gwyneth Paltrow"
+                        words = pretty.split()
+                        if len(words) > 0:
+                            pretty = " ".join(word.title() if "-" not in word else word for word in words)
+                        norm[idx] = {"id": idx, "name": pretty}
+                    LABELS = norm
+                    LOGGER.info("Loaded labels from %s (classes=%s)", p, len(LABELS))
+                    break
             except Exception as exc:
-                LOGGER.warning("Failed to load label encoder %s: %s", p, exc)
-
-    labels_path = os.path.join(os.path.dirname(__file__), "labels.json")
-    if os.path.exists(labels_path):
-        try:
-            with open(labels_path, "r", encoding="utf-8") as f:
-                raw = json.load(f)
-            # Normalize into {index: {id, name}}
-            norm: Dict[int, Dict[str, Any]] = {}
-            if isinstance(raw, dict):
-                for k, v in raw.items():
-                    try:
-                        idx = int(k)
-                    except Exception:
-                        continue
-                    if isinstance(v, dict):
-                        actor_id = v.get("id", v.get("name", str(idx)))
-                        norm[idx] = {"id": actor_id, "name": v.get("name", str(actor_id))}
-                    else:
-                        norm[idx] = {"id": v, "name": str(v)}
-            elif isinstance(raw, list):
-                for idx, name in enumerate(raw):
-                    norm[idx] = {"id": name, "name": str(name)}
-            LABELS = norm
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            LOGGER.warning("Failed to load labels.json: %s, using fallback", exc)
-            # Fallback: create basic labels from known actors (matching label_encoder.pkl order)
-            LABELS = {
-                0: {"id": 0, "name": "Al Pacino"},
-                1: {"id": 1, "name": "Adam Driver"},
-                2: {"id": 2, "name": "Adrien Brody"},
-                3: {"id": 3, "name": "Amy Poehler"},
-                4: {"id": 4, "name": "Angelina Jolie"},
-                5: {"id": 5, "name": "Anne Hathaway"},
-                6: {"id": 6, "name": "Cameron Diaz"},
-                7: {"id": 7, "name": "Cate Blanchett"},
-                8: {"id": 8, "name": "Channing Tatum"},
-                9: {"id": 9, "name": "Charlize Theron"},
-                10: {"id": 10, "name": "Colin Farrell"},
-                11: {"id": 11, "name": "Courteney Cox"},
-                12: {"id": 12, "name": "Daniel Radcliffe"},
-                13: {"id": 13, "name": "Drew Barrymore"},
-                14: {"id": 14, "name": "Dwayne Johnson"},
-                15: {"id": 15, "name": "Gwyneth Paltrow"},
-                16: {"id": 16, "name": "Helen Mirren"},
-                17: {"id": 17, "name": "Jennifer Lawrence"},
-                18: {"id": 18, "name": "Jeremy Renner"},
-                19: {"id": 19, "name": "Joseph Gordon-Levitt"},
-                20: {"id": 20, "name": "Julia Roberts"},
-                21: {"id": 21, "name": "Julianne Moore"},
-                22: {"id": 22, "name": "Viola Davis"},
-                23: {"id": 23, "name": "Willem"},
-                24: {"id": 24, "name": "Zendaya"},
-                25: {"id": 25, "name": "Zoe Saldana"},
-            }
-    else:
-        # Fallback: create basic labels from known actors (matching label_encoder.pkl order)
-        LABELS = {
-            0: {"id": 0, "name": "Al Pacino"},
-            1: {"id": 1, "name": "Adam Driver"},
-            2: {"id": 2, "name": "Adrien Brody"},
-            3: {"id": 3, "name": "Amy Poehler"},
-            4: {"id": 4, "name": "Angelina Jolie"},
-            5: {"id": 5, "name": "Anne Hathaway"},
-            6: {"id": 6, "name": "Cameron Diaz"},
-            7: {"id": 7, "name": "Cate Blanchett"},
-            8: {"id": 8, "name": "Channing Tatum"},
-            9: {"id": 9, "name": "Charlize Theron"},
-            10: {"id": 10, "name": "Colin Farrell"},
-            11: {"id": 11, "name": "Courteney Cox"},
-            12: {"id": 12, "name": "Daniel Radcliffe"},
-            13: {"id": 13, "name": "Drew Barrymore"},
-            14: {"id": 14, "name": "Dwayne Johnson"},
-            15: {"id": 15, "name": "Gwyneth Paltrow"},
-            16: {"id": 16, "name": "Helen Mirren"},
-            17: {"id": 17, "name": "Jennifer Lawrence"},
-            18: {"id": 18, "name": "Jeremy Renner"},
-            19: {"id": 19, "name": "Joseph Gordon-Levitt"},
-            20: {"id": 20, "name": "Julia Roberts"},
-            21: {"id": 21, "name": "Julianne Moore"},
-            22: {"id": 22, "name": "Viola Davis"},
-            23: {"id": 23, "name": "Willem"},
-            24: {"id": 24, "name": "Zendaya"},
-            25: {"id": 25, "name": "Zoe Saldana"},
-        }
-    LOGGER.info("Loaded %s labels", len(LABELS))
+                LOGGER.warning("Failed to load class names %s: %s", p, exc)
+    
+    if not LABELS:
+        raise FileNotFoundError("class_names.pkl not found. Please ensure it exists in project root or backend directory.")
+    
+    json_paths = [
+        os.path.join(os.path.dirname(__file__), "labels.json"),
+        os.path.join(_project_root(), "backend", "labels.json"),
+    ]
+    
+    for p in json_paths:
+        if os.path.exists(p):
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    labels_data = json.load(f)
+                    for key, value in labels_data.items():
+                        if isinstance(value, dict) and "name" in value:
+                            actor_name = value["name"].strip().lower()
+                            LABELS_JSON[actor_name] = value
+                    LOGGER.info("Loaded %d actors from labels.json as fallback", len(LABELS_JSON))
+                    break
+            except Exception as exc:
+                LOGGER.warning("Failed to load labels.json %s: %s", p, exc)
 
 
 def load_model() -> None:
     global MODEL, TRANSFORM
     if MODEL is not None:
-        LOGGER.info("Model already loaded, skipping reload")
         return
     
-    # Ensure labels are loaded first
     if not LABELS:
         load_labels()
     
-    ckpt_path = os.path.join(_project_root(), "face_classifier_finetuned.pth")
+    ckpt_path = os.path.join(_project_root(), "face_recognition_resnet.pth")
     if not os.path.exists(ckpt_path):
         raise FileNotFoundError(f"Checkpoint not found at {ckpt_path}")
 
-    # Prefer TorchScript for portability
+    num_classes = len(LABELS)
+    if num_classes == 0:
+        raise RuntimeError("No labels loaded. Cannot determine number of classes.")
+
     try:
-        model = torch.jit.load(ckpt_path, map_location=DEVICE)
-        model.eval()
+        state_dict = torch.load(ckpt_path, map_location=DEVICE)
         
-        # Test model output shape
-        test_input = torch.randn(1, 3, 112, 112).to(DEVICE)
-        with torch.no_grad():
-            test_output = model(test_input)
-            if isinstance(test_output, (list, tuple)):
-                test_output = test_output[0]
-            num_model_classes = test_output.shape[1]
-            num_labels = len(LABELS)
-            LOGGER.info("TorchScript model test: output shape=%s, model classes=%s, labels=%s",
-                       tuple(test_output.shape), num_model_classes, num_labels)
-            if num_model_classes != num_labels:
-                LOGGER.error(
-                    "CRITICAL: Model has %s classes but labels.json has %s classes! "
-                    "Predictions will be incorrect. Please ensure model and labels match.",
-                    num_model_classes, num_labels
-                )
+        new_state_dict = {}
+        for k, v in state_dict.items():
+            if k.startswith('_orig_mod.'):
+                new_state_dict[k[len('_orig_mod.'):]] = v
+            else:
+                new_state_dict[k] = v
         
-        MODEL = model
-        LOGGER.info("Loaded TorchScript model from %s on %s", ckpt_path, DEVICE)
-        return
-    except Exception as exc:
-        LOGGER.warning("Failed to load TorchScript model: %s", exc)
-        pass
-
-    # Fallback: attempt to load a plain state_dict from training checkpoint
-    try:
-        state = torch.load(ckpt_path, map_location=DEVICE)
-        state_dict = None
-        if isinstance(state, dict):
-            for key in ("model_state_dict", "state_dict"):
-                if key in state and isinstance(state[key], dict):
-                    state_dict = state[key]
-                    break
-        if state_dict is None and isinstance(state, dict):
-            tensor_only = {k: v for k, v in state.items() if isinstance(v, torch.Tensor)}
-            state_dict = tensor_only
-
-        if not isinstance(state_dict, dict) or not state_dict:
-            raise RuntimeError("Checkpoint does not contain a valid state_dict")
-
-        model_name = str(state.get("model_name", "resnet18")).lower()
-        # Derive classifier dimensions
-        inferred_classes = None
-        hidden_dim = None
-        if "fc.4.weight" in state_dict:
-            inferred_classes = state_dict["fc.4.weight"].shape[0]
-            hidden_dim = state_dict["fc.1.weight"].shape[0] if "fc.1.weight" in state_dict else None
-        elif "fc.weight" in state_dict:
-            inferred_classes = state_dict["fc.weight"].shape[0]
-        elif len(LABELS) > 0:
-            inferred_classes = len(LABELS)
-        else:
-            raise RuntimeError("Unable to infer classifier output size from checkpoint")
-
-        input_size = int(state.get("input_size", DEFAULT_INPUT_SIZE))
-        mean = state.get("mean") or state.get("channel_mean")
-        std = state.get("std") or state.get("channel_std")
-
-        if model_name == "resnet50":
-            backbone = models.resnet50(weights=None)
-        elif model_name == "resnet34":
-            backbone = models.resnet34(weights=None)
-        else:
-            backbone = models.resnet18(weights=None)
-
-        in_features = backbone.fc.in_features
-        if hidden_dim is not None and "fc.4.weight" in state_dict:
-            LOGGER.info(
-                "Configuring %s classifier head with hidden_dim=%s, num_classes=%s",
-                model_name,
-                hidden_dim,
-                inferred_classes,
-            )
-            backbone.fc = nn.Sequential(
-                nn.Dropout(p=0.5),
-                nn.Linear(in_features, hidden_dim),
-                nn.ReLU(),
-                nn.Dropout(p=0.5),
-                nn.Linear(hidden_dim, inferred_classes),
-            )
-        else:
-            LOGGER.info(
-                "Configuring %s classifier head with direct linear head (num_classes=%s)",
-                model_name,
-                inferred_classes,
-            )
-            backbone.fc = nn.Linear(in_features, inferred_classes)
-
-        missing, unexpected = backbone.load_state_dict(state_dict, strict=False)
-        if missing or unexpected:
-            LOGGER.warning(
-                "State_dict load produced missing=%s unexpected=%s",
-                missing,
-                unexpected,
-            )
-
-        backbone.to(DEVICE)
-        backbone.eval()
-        MODEL = backbone
-
-        if isinstance(mean, (list, tuple)) and isinstance(std, (list, tuple)) and len(mean) == 3 and len(std) == 3:
-            TRANSFORM = _make_transform(input_size, mean, std)
-            LOGGER.info("Updated preprocessing transform using checkpoint mean/std (size=%s)", input_size)
-        else:
-            TRANSFORM = _make_transform(input_size)
-            LOGGER.info("Updated preprocessing transform using checkpoint input_size=%s", input_size)
-
-        if len(LABELS) and inferred_classes != len(LABELS):
-            LOGGER.warning(
-                "Checkpoint classes (%s) differ from loaded labels (%s). Predictions may be misaligned.",
-                inferred_classes,
-                len(LABELS),
-            )
-        return
-    except Exception as exc:
-        LOGGER.warning("ResNet18 load failed, trying FaceCNN_Improved: %s", exc)
-
-    # Second fallback: custom CNN architecture used in notebook
-    try:
-        class FaceCNN_Improved(nn.Module):
-            def __init__(self, num_classes: int):
-                super().__init__()
-                self.conv1 = nn.Conv2d(3, 32, kernel_size=3, padding=1)
-                self.bn1 = nn.BatchNorm2d(32)
-                self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
-                self.bn2 = nn.BatchNorm2d(64)
-                self.conv3 = nn.Conv2d(64, 128, kernel_size=3, padding=1)
-                self.bn3 = nn.BatchNorm2d(128)
-                self.pool = nn.MaxPool2d(2, 2)
-                self.relu = nn.ReLU()
-                self.dropout = nn.Dropout(0.5)
-                self.gap = nn.AdaptiveAvgPool2d((1, 1))
-                self.fc1 = nn.Linear(128, 256)
-                self.fc2 = nn.Linear(256, num_classes)
-
-            def forward(self, x):
-                x = self.pool(self.relu(self.bn1(self.conv1(x))))
-                x = self.pool(self.relu(self.bn2(self.conv2(x))))
-                x = self.pool(self.relu(self.bn3(self.conv3(x))))
-                x = self.gap(x)
-                x = torch.flatten(x, 1)
-                x = self.dropout(self.relu(self.fc1(x)))
-                return self.fc2(x)
-
-        num_classes = max(1, len(LABELS) or 1)
-        cnn = FaceCNN_Improved(num_classes=num_classes)
-        sd = torch.load(ckpt_path, map_location=DEVICE)
-        sd = sd.get("state_dict", sd)
-        missing, unexpected = cnn.load_state_dict(sd, strict=False)
-        LOGGER.info(
-            "Loaded state_dict into FaceCNN_Improved (classes=%s) missing=%s unexpected=%s",
-            num_classes,
-            len(missing),
-            len(unexpected),
+        resnet_model = models.resnet18(weights=None)
+        num_ftrs = resnet_model.fc.in_features
+        
+        model = nn.Sequential(
+            resnet_model.conv1,
+            resnet_model.bn1,
+            resnet_model.relu,
+            resnet_model.maxpool,
+            resnet_model.layer1,
+            resnet_model.layer2,
+            resnet_model.layer3,
+            resnet_model.layer4,
+            resnet_model.avgpool,
+            nn.Flatten(),
+            nn.Dropout(0.5),
+            nn.Linear(num_ftrs, num_classes)
         )
-        cnn.to(DEVICE)
-        cnn.eval()
-        MODEL = cnn
-        return
-    except Exception as exc2:
-        LOGGER.exception("Failed to load model with fallbacks: %s", exc2)
-        raise RuntimeError(
-            "Failed to load model. Provide TorchScript .pth or matching state_dict for ResNet18/FaceCNN_Improved."
-        ) from exc2
+        
+        model.load_state_dict(new_state_dict, strict=False)
+        model.to(DEVICE)
+        model.eval()
+        MODEL = model
+        TRANSFORM = _make_transform()
+        
+        LOGGER.info("Loaded ResNet18 model from %s on %s", ckpt_path, DEVICE)
+        
+    except Exception as exc:
+        LOGGER.exception("Failed to load model: %s", exc)
+        raise RuntimeError(f"Failed to load model from {ckpt_path}: {exc}") from exc
 
 
 @APP.on_event("startup")
@@ -375,146 +180,198 @@ def _startup() -> None:
     try:
         load_model()
     except Exception:
-        # Defer model load failure; endpoint will use a graceful fallback
         pass
     _ensure_transform()
 
 
+def _detect_and_crop_face(img: Image.Image) -> Optional[Image.Image]:
+    global FACE_DETECTOR
+    if FACE_DETECTOR is None:
+        FACE_DETECTOR = MTCNN()
+    
+    try:
+        img_array = np.array(img.convert('RGB'))
+        faces = FACE_DETECTOR.detect_faces(img_array)
+        
+        if len(faces) == 0:
+            return img
+        
+        face = max(faces, key=lambda x: x['confidence'])
+        box = face['box']
+        confidence = face['confidence']
+        
+        if confidence < 0.5:
+            return img
+        
+        x, y, w, h = box
+        padding_percent = 0.1
+        padding_x = int(w * padding_percent)
+        padding_y = int(h * padding_percent)
+        
+        x = max(0, x - padding_x)
+        y = max(0, y - padding_y)
+        w = min(img_array.shape[1] - x, w + 2 * padding_x)
+        h = min(img_array.shape[0] - y, h + 2 * padding_y)
+        
+        cropped_array = img_array[y:y+h, x:x+w]
+        face_crop = Image.fromarray(cropped_array)
+        return face_crop
+        
+    except Exception:
+        return img
+
+
 def _predict_topk(img: Image.Image, topk: int) -> List[Dict[str, Any]]:
-    # Try real model inference; if unavailable, fall back to label-based results
     try:
         if MODEL is None:
             raise RuntimeError("Model is not loaded")
+        
+        face_img = _detect_and_crop_face(img)
         _ensure_transform()
-        tensor = TRANSFORM(img).unsqueeze(0).to(DEVICE)
+        tensor = TRANSFORM(face_img).unsqueeze(0).to(DEVICE)
+        
         with torch.no_grad():
             logits = MODEL(tensor)
             if isinstance(logits, (list, tuple)):
                 logits = logits[0]
-            if not isinstance(logits, torch.Tensor):
-                raise RuntimeError("Model did not return a tensor output")
-            
-            # Validate number of classes
-            num_model_classes = logits.shape[1]
-            num_labels = len(LABELS)
-            if num_model_classes != num_labels:
-                LOGGER.warning(
-                    "Mismatch: Model has %s classes but labels.json has %s classes. "
-                    "This may cause incorrect predictions!",
-                    num_model_classes,
-                    num_labels,
-                )
-            
-            LOGGER.info("Logits shape: %s, Model classes: %s, Labels: %s", 
-                       tuple(logits.shape), num_model_classes, num_labels)
             
             probs = torch.softmax(logits, dim=1)
-            values, indices = torch.topk(
-                probs, k=min(topk, probs.shape[1]), dim=1
-            )
+            values, indices = torch.topk(probs, k=min(topk, probs.shape[1]), dim=1)
+        
         values = values.squeeze(0).cpu().numpy().tolist()
         indices = indices.squeeze(0).cpu().numpy().tolist()
 
         results: List[Dict[str, Any]] = []
-        for score, idx in zip(values, indices):
+        LOGGER.info("PREDICTIONS (Top 3):")
+        for rank, (score, idx) in enumerate(zip(values, indices), 1):
             idx_int = int(idx)
             label_meta = LABELS.get(idx_int, {"id": idx_int, "name": f"Unknown_{idx_int}"})
             predicted_name = label_meta.get("name", str(idx_int))
-            LOGGER.debug("Predicted: index=%s, name=%s, score=%.4f", idx_int, predicted_name, float(score))
-            results.append(
-                {
-                    "id": label_meta.get("id", idx_int),
-                    "name": predicted_name,
-                    "score": float(score),
-                }
-            )
+            percentage = float(score) * 100
+            
+            if rank <= 3:
+                LOGGER.info("  [%d] %s: %.2f%%", rank, predicted_name, percentage)
+            
+            results.append({
+                "id": label_meta.get("id", idx_int),
+                "name": predicted_name,
+                "score": float(score),
+            })
+        
         return results
     except Exception as exc:
         LOGGER.exception("Inference failed: %s", exc)
-        # Disable fallback to avoid returning actors not in database
         return []
 
 
 async def _find_actor_in_db_by_name(name: str) -> Optional[Dict[str, Any]]:
-    # Query main API and attempt exact name match (case-insensitive)
-    params = {"q": name, "page": 0, "size": 5}
-    url = f"{MOVIE_API_BASE}/actors"
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(url, params=params)
-            resp.raise_for_status()
-            data = resp.json()
-    except Exception:
+    if not name or not name.strip():
+        return None
+    
+    search_name = name.strip()
+    urls_to_try = [
+        (f"{MOVIE_API_BASE}/actors", {"q": search_name, "page": 0, "size": 10}),
+        (f"{MOVIE_API_BASE}/search/actor/{search_name}", {"page": 0, "size": 10}),
+    ]
+    
+    items: List[Dict[str, Any]] = []
+    
+    for url, params in urls_to_try:
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(url, params=params)
+                resp.raise_for_status()
+                data = resp.json()
+                
+                if isinstance(data, dict):
+                    if isinstance(data.get("content"), list):
+                        items = data["content"]
+                    elif isinstance(data.get("data"), list):
+                        items = data["data"]
+                    elif isinstance(data.get("items"), list):
+                        items = data["items"]
+                    elif isinstance(data.get("results"), list):
+                        items = data["results"]
+                elif isinstance(data, list):
+                    items = data
+                
+                if items:
+                    break
+        except Exception:
+            continue
+    
+    if not items:
+        search_name_lower = search_name.lower()
+        if search_name_lower in LABELS_JSON:
+            fallback_actor = LABELS_JSON[search_name_lower]
+            actor_id = fallback_actor.get("id")
+            
+            if actor_id is not None:
+                try:
+                    api_url = f"{MOVIE_API_BASE}/actors/{actor_id}"
+                    async with httpx.AsyncClient(timeout=5.0) as client:
+                        resp = await client.get(api_url)
+                        if resp.status_code == 200:
+                            return resp.json()
+                except Exception:
+                    pass
+            
+            return fallback_actor
         return None
 
-    items: List[Dict[str, Any]] = []
-    if isinstance(data, dict) and isinstance(data.get("content"), list):
-        items = data["content"]
-    elif isinstance(data, list):
-        items = data
-
-    # Prefer exact, otherwise first close match
-    lower = name.strip().lower()
+    search_name_lower = search_name.lower()
+    
     for it in items:
         n = str(it.get("name", "")).strip().lower()
-        if n == lower:
+        if n == search_name_lower:
             return it
-    return items[0] if items else None
-
-
-@APP.get("/api/debug/model-info")
-@APP.get("/debug/model-info")
-async def get_model_info():
-    """Debug endpoint to check model and labels status"""
-    model_info = {
-        "model_loaded": MODEL is not None,
-        "device": str(DEVICE),
-        "labels_count": len(LABELS),
-        "labels": {str(k): v.get("name") for k, v in LABELS.items()},
-    }
     
-    if MODEL is not None:
-        try:
-            # Test model output
-            test_input = torch.randn(1, 3, 112, 112).to(DEVICE)
-            with torch.no_grad():
-                test_output = MODEL(test_input)
-                if isinstance(test_output, (list, tuple)):
-                    test_output = test_output[0]
-                model_info["model_output_shape"] = list(test_output.shape)
-                model_info["model_classes"] = test_output.shape[1]
-                model_info["classes_match"] = test_output.shape[1] == len(LABELS)
-        except Exception as exc:
-            model_info["model_test_error"] = str(exc)
+    for it in items:
+        n = str(it.get("name", "")).strip().lower()
+        if search_name_lower in n or n in search_name_lower:
+            return it
     
-    return model_info
-
-
-@APP.post("/api/debug/reload")
-@APP.post("/debug/reload")
-async def reload_model():
-    """Reload model and labels"""
-    global MODEL, LABELS
-    MODEL = None
-    LABELS = {}
-    try:
-        load_labels()
-        load_model()
-        return {"status": "success", "labels_count": len(LABELS), "model_loaded": MODEL is not None}
-    except Exception as exc:
-        return {"status": "error", "error": str(exc)}
+    search_words = set(search_name_lower.split())
+    for it in items:
+        n = str(it.get("name", "")).strip().lower()
+        item_words = set(n.split())
+        if search_words.issubset(item_words) or item_words.issubset(search_words):
+            return it
+    
+    if search_name_lower in LABELS_JSON:
+        fallback_actor = LABELS_JSON[search_name_lower]
+        actor_id = fallback_actor.get("id")
+        
+        if actor_id is not None:
+            try:
+                api_url = f"{MOVIE_API_BASE}/actors/{actor_id}"
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    resp = await client.get(api_url)
+                    if resp.status_code == 200:
+                        return resp.json()
+            except Exception:
+                pass
+        
+        return fallback_actor
+    
+    if items:
+        return items[0]
+    
+    return None
 
 
 @APP.post("/api/actors/recognize")
-@APP.post("/actors/recognize")  # alias for frontend proxy pointing to /ai
+@APP.post("/actors/recognize")
+@APP.post("/ai/actors/recognize")  # Direct endpoint for frontend
 async def recognize(
     image: UploadFile = File(...),
     topK: int = Form(12),
     debug: int = Form(0),
     minScore: float = Form(0.3),  # Chỉ hiển thị diễn viên có điểm >= 30%
-    maxResults: int = Form(3),    # Tối đa 3 kết quả
+    maxResults: int = Form(0),    # 0 = không giới hạn, dùng topK
 ):
     if image.content_type is None or not image.content_type.startswith("image/"):
+        LOGGER.error("❌ Invalid image content type: %s", image.content_type)
         raise HTTPException(status_code=400, detail="Invalid image content type")
     try:
         content = await image.read()
@@ -527,53 +384,49 @@ async def recognize(
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
-    # Debug: log raw predictions with more detail
-    LOGGER.info(
-        "Recognize request: topK=%s, total_labels=%s, preds=%s",
-        topK,
-        len(LABELS),
-        [
-            {"name": p.get("name"), "score": round(float(p.get("score", 0)), 4), "id": p.get("id")}
-            for p in (preds or [])[:5]  # Log top 5 only
-        ],
-    )
-
-    # Filter predictions against DB actors; return only existing actors
     filtered: List[Dict[str, Any]] = []
     seen_ids = set()
+    
     for p in preds:
-        # Chỉ lấy diễn viên có điểm số >= minScore
-        if float(p.get("score", 0.0)) < float(minScore):
+        pred_name = str(p.get("name", ""))
+        pred_score = float(p.get("score", 0.0))
+        
+        if pred_score < float(minScore):
             continue
-        actor = await _find_actor_in_db_by_name(str(p.get("name", "")))
+        
+        actor = await _find_actor_in_db_by_name(pred_name)
+        
         if not actor:
             continue
+        
         actor_id = actor.get("id")
         if actor_id in seen_ids:
             continue
+        
         seen_ids.add(actor_id)
-        # Merge known fields; keep score for potential UI usage
+        
         filtered.append({
             "id": actor.get("id"),
             "name": actor.get("name"),
             "imageUrl": actor.get("imageUrl") or actor.get("image") or actor.get("avatarUrl"),
             "movieCount": actor.get("movieCount"),
-            "score": p.get("score"),
+            "score": pred_score,
         })
     
-    # Sắp xếp theo điểm số giảm dần và giới hạn số kết quả
     filtered.sort(key=lambda a: float(a.get("score", 0.0)), reverse=True)
-    if maxResults > 0:
-        filtered = filtered[:maxResults]
+    limit = maxResults if maxResults > 0 else topK
+    if limit > 0:
+        filtered = filtered[:limit]
 
-    LOGGER.info(
-        "Filtered against DB: matched=%s -> %s",
-        len(preds or []),
-        [
-            {"id": a.get("id"), "name": a.get("name"), "score": a.get("score")}
-            for a in filtered
-        ],
-    )
+    LOGGER.info("RESULTS:")
+    if filtered:
+        for i, actor in enumerate(filtered[:3], 1):
+            score_pct = float(actor.get("score", 0)) * 100
+            LOGGER.info("  [%d] %s - %.2f%%", i, actor.get("name"), score_pct)
+        if len(filtered) > 3:
+            LOGGER.info("  ... and %d more", len(filtered) - 3)
+    else:
+        LOGGER.info("  No actors found")
 
     if debug:
         return {
@@ -586,10 +439,6 @@ async def recognize(
         }
 
     return {"content": filtered}
-
-
-def create_app() -> FastAPI:
-    return APP
 
 
 if __name__ == "__main__":

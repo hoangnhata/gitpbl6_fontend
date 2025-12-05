@@ -35,7 +35,9 @@ __pycache__/
 e2e/
 
 # Model files
-face_classifier_finetuned.pth
+face_recognition_resnet.pth
 *.pth
 *.pt
 *.onnx
+*.pkl
+*.md

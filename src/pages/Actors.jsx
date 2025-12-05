@@ -75,15 +75,22 @@ export default function Actors() {
   const debouncedQuery = useDebounce(q, 300);
   const prevQueryRef = useRef(debouncedQuery);
 
-  // Reset to page 1 when search query changes
+  // Reset to page 1 when search query changes (and trigger load if already on page 1)
   useEffect(() => {
-    if (!imageSearching && prevQueryRef.current !== debouncedQuery) {
-      prevQueryRef.current = debouncedQuery;
+    if (imageSearching) return;
+    if (prevQueryRef.current === debouncedQuery) return;
+
+    prevQueryRef.current = debouncedQuery;
+
+    if (currentPage !== 1) {
       setCurrentPage(1);
-      // Don't load here, let the next useEffect handle it
+      return;
     }
+
+    // Already on page 1 -> load immediately for new query
+    load(0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQuery]);
+  }, [debouncedQuery, imageSearching, currentPage]);
 
   // Load data when page changes (including when reset to page 1)
   useEffect(() => {
@@ -92,7 +99,7 @@ export default function Actors() {
       load(pageToLoad);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage]);
+  }, [currentPage, imageSearching]);
 
   async function load(page) {
     try {
@@ -159,8 +166,17 @@ export default function Actors() {
       // preview
       const url = URL.createObjectURL(file);
       setImagePreviewUrl(url);
+      // eslint-disable-next-line no-console
+      console.log(
+        "[Actors] Starting recognition for file:",
+        file.name,
+        file.size,
+        "bytes"
+      );
       // call recognition API
       const data = await recognizeActorsByImage(file, { topK: 24 });
+      // eslint-disable-next-line no-console
+      console.log("[Actors] Recognition response received:", data);
       const preds = Array.isArray(data?.content)
         ? data.content
         : Array.isArray(data)
@@ -171,6 +187,12 @@ export default function Actors() {
         .filter(Boolean);
       // eslint-disable-next-line no-console
       console.log("[AI] predicted names:", names);
+      if (names.length === 0) {
+        setError(
+          "Không tìm thấy diễn viên nào trong ảnh. Vui lòng thử ảnh khác."
+        );
+        return;
+      }
       const dbActors = await searchActorsByNames(names);
       // eslint-disable-next-line no-console
       console.log("[DB] matched actors:", dbActors);
@@ -180,7 +202,12 @@ export default function Actors() {
       setTotalPages(1);
       setTotalElements(dbActors.length);
     } catch (e) {
-      setError(e?.message || "Không thể nhận diện diễn viên từ ảnh");
+      // eslint-disable-next-line no-console
+      console.error("[Actors] Recognition error:", e);
+      setError(
+        e?.message ||
+          "Không thể nhận diện diễn viên từ ảnh. Vui lòng kiểm tra backend có đang chạy không."
+      );
     } finally {
       setLoading(false);
       // reset input value to allow same-file reselect
