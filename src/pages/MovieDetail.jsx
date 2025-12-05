@@ -459,7 +459,7 @@ export default function MovieDetail() {
           position: "fixed",
           inset: 0,
           background: `radial-gradient(60% 60% at 50% 20%, rgba(255,215,0,0.12) 0%, rgba(11,18,32,0.0) 60%) , url(${
-            movie?.backdrop || movie?.thumb
+            movie?.backdrop || movie?.posterUrl || movie?.thumb
           }) center/cover no-repeat`,
           filter: "blur(28px)",
           opacity: 0.35,
@@ -556,7 +556,7 @@ export default function MovieDetail() {
                 >
                   <CardMedia
                     component="img"
-                    image={movie.thumb}
+                    image={movie.posterUrl || movie.thumb}
                     alt={movie.title}
                     sx={{
                       aspectRatio: "2 / 3",
