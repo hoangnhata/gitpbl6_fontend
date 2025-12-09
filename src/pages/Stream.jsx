@@ -66,16 +66,20 @@ import {
 import { listPublicUsers, getPublicUser } from "../api/users";
 
 const CDN_HOST = "cdn.phimnhalam.website";
+// Rewrite CDN URLs to go through Netlify proxy (/cdn/*) so we can attach CORS headers there.
+// Netlify config required:
+//   public/_redirects:
+//     /cdn/*  https://cdn.phimnhalam.website/:splat  200
+//   public/_headers:
+//     /cdn/*
+//       Access-Control-Allow-Origin: https://phimnhalam.netlify.app
+//       Access-Control-Allow-Methods: GET, HEAD, OPTIONS
+//       Access-Control-Allow-Headers: *
 const toCdnProxy = (url) => {
   if (!url) return url;
   try {
     const u = new URL(url, window.location.origin);
-    const isLocal =
-      typeof window !== "undefined" &&
-      ["localhost", "127.0.0.1"].includes(window.location.hostname);
-
-    // Only rewrite to dev proxy when running locally; keep absolute CDN URL in prod
-    if (isLocal && u.hostname === CDN_HOST) {
+    if (u.hostname === CDN_HOST) {
       return `/cdn${u.pathname}${u.search}${u.hash}`;
     }
     return url;

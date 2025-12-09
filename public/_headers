@@ -1,0 +1,5 @@
+/cdn/*
+  Access-Control-Allow-Origin: https://phimnhalam.netlify.app
+  Access-Control-Allow-Methods: GET, HEAD, OPTIONS
+  Access-Control-Allow-Headers: *
+
