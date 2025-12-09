@@ -198,7 +198,7 @@ export default function Watchlist() {
   const navItems = [
     { label: "Yêu thích", icon: <Favorite />, to: "/favorites", active: false },
     { label: "Danh sách", icon: <ListIcon />, to: "/watchlist", active: true },
-    { label: "Xem tiếp", icon: <History />, to: "/account", active: false },
+    { label: "Xem tiếp", icon: <History />, to: "/watch-history", active: false },
     {
       label: "Thông báo",
       icon: <Notifications />,

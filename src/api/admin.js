@@ -672,9 +672,13 @@ export function updateCategory(name, categoryData = {}) {
   if (categoryData.name && categoryData.name !== name) {
     params.append("newName", categoryData.name);
   }
-  return formEncodedFetch(`/admin/categories/${encodeURIComponent(name)}`, params, {
-    method: "PUT",
-  });
+  return formEncodedFetch(
+    `/admin/categories/${encodeURIComponent(name)}`,
+    params,
+    {
+      method: "PUT",
+    }
+  );
 }
 
 // DELETE /api/admin/categories/{name}

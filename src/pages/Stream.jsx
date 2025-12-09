@@ -65,6 +65,20 @@ import {
 } from "../api/ratings";
 import { listPublicUsers, getPublicUser } from "../api/users";
 
+const CDN_HOST = "cdn.phimnhalam.website";
+const toCdnProxy = (url) => {
+  if (!url) return url;
+  try {
+    const u = new URL(url, window.location.origin);
+    if (u.hostname === CDN_HOST) {
+      return `/cdn${u.pathname}${u.search}${u.hash}`;
+    }
+    return url;
+  } catch (_) {
+    return url;
+  }
+};
+
 // Fallback cast data for when a movie lacks actor info
 const DEFAULT_STREAM_CAST = [
   { name: "Yoona", avatar: "https://i.pravatar.cc/150?img=47" },
@@ -76,6 +90,92 @@ const DEFAULT_STREAM_CAST = [
   { name: "Park Young-woon", avatar: "https://i.pravatar.cc/150?img=13" },
   { name: "Yoon Seo-ah", avatar: "https://i.pravatar.cc/150?img=45" },
 ];
+
+// Dev-only helper: proxy CDN subtitle URLs through Vite dev server to avoid
+// mixed-origin/CORS blocks when running on http://localhost:5173.
+const SUBTITLE_CDN_HOST = "cdn.phimnhalam.website";
+const SUBTITLE_CDN_PATH_PREFIX = "/subtitles";
+function resolveSubtitleUrl(url) {
+  if (!url) return "";
+  // Keep absolute/relative URLs that are already same-origin
+  if (url.startsWith("/")) return url;
+  try {
+    const parsed = new URL(url, window.location.origin);
+    const isDev =
+      import.meta.env?.DEV ||
+      ["localhost", "127.0.0.1"].includes(window.location.hostname);
+    const isCdnHost =
+      parsed.hostname === SUBTITLE_CDN_HOST ||
+      parsed.hostname === `www.${SUBTITLE_CDN_HOST}`;
+
+    if (isDev && isCdnHost) {
+      // Strip the CDN host so the request goes through the Vite proxy
+      const path = parsed.pathname.startsWith(SUBTITLE_CDN_PATH_PREFIX)
+        ? parsed.pathname
+        : `${SUBTITLE_CDN_PATH_PREFIX}${parsed.pathname}`;
+      return `${path}${parsed.search || ""}`;
+    }
+    return parsed.toString();
+  } catch (_) {
+    return url;
+  }
+}
+
+// Convert SRT to WebVTT so browsers can render it.
+// Robust to extra blank lines and numeric indices; also nudges overlapping cues.
+function convertSrtToVtt(srtText = "") {
+  const normalized = srtText.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+  const cues = [];
+  let lastEnd = 0;
+
+  const parseTime = (t) => {
+    const m = t.match(/(\d{2}):(\d{2}):(\d{2})[,.](\d{3})/);
+    if (!m) return null;
+    const [, hh, mm, ss, ms] = m;
+    return Number(hh) * 3600 + Number(mm) * 60 + Number(ss) + Number(ms) / 1000;
+  };
+
+  const re =
+    /(?:\d+)?\s*\n\s*(\d{2}:\d{2}:\d{2}[,\.]\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}[,\.]\d{3})\s*\n([\s\S]*?)(?=\n{2,}|$)/g;
+  let m;
+  while ((m = re.exec(normalized))) {
+    const start = parseTime(m[1]);
+    const end = parseTime(m[2]);
+    if (start == null || end == null) continue;
+    const text = m[3]
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.length)
+      .join("\n");
+    if (!text) continue;
+    const safeStart = Math.max(start, lastEnd + 0.01);
+    const safeEnd = Math.max(end, safeStart + 0.3);
+    lastEnd = safeEnd;
+    cues.push({ start: safeStart, end: safeEnd, text });
+  }
+
+  if (!cues.length) {
+    return "WEBVTT\n\n";
+  }
+
+  const fmt = (t) => {
+    const hh = String(Math.floor(t / 3600)).padStart(2, "0");
+    const mm = String(Math.floor((t % 3600) / 60)).padStart(2, "0");
+    const ss = String(Math.floor(t % 60)).padStart(2, "0");
+    const ms = String(Math.round((t % 1) * 1000)).padStart(3, "0");
+    return `${hh}:${mm}:${ss}.${ms}`;
+  };
+
+  const vttLines = ["WEBVTT", ""];
+  cues.forEach((c, idx) => {
+    vttLines.push(String(idx + 1));
+    vttLines.push(`${fmt(c.start)} --> ${fmt(c.end)}`);
+    vttLines.push(c.text);
+    vttLines.push("");
+  });
+
+  return vttLines.join("\n");
+}
 
 export default function Stream() {
   const { id } = useParams();
@@ -189,7 +289,8 @@ export default function Stream() {
     useState("English");
   const [subtitleEnabled, setSubtitleEnabled] = useState(true);
   const [currentSubtitleTrack, setCurrentSubtitleTrack] = useState(null);
-  const [subtitleRenderTrack, setSubtitleRenderTrack] = useState(null);
+  const [subtitleRenderUrl, setSubtitleRenderUrl] = useState("");
+  const [subtitleTrackKey, setSubtitleTrackKey] = useState(0);
   const subtitleBlobUrlRef = useRef(null);
   const [videoSrc, setVideoSrc] = useState("");
   const [addOpen, setAddOpen] = useState(false);
@@ -387,7 +488,7 @@ export default function Stream() {
         );
         if (started?.selectedSubtitleLanguage)
           setSelectedSubtitleLanguage(started.selectedSubtitleLanguage);
-        setVideoSrc(started?.streamingUrl || "");
+        setVideoSrc(toCdnProxy(started?.streamingUrl || ""));
       } catch (e) {
         // keep silent; fallback to local movie url if any
       }
@@ -431,8 +532,15 @@ export default function Stream() {
       availableSubtitles.find((s) => s?.isDefault) ||
       availableSubtitles[0];
     if (selected && (selected.url || selected.subtitleUrl)) {
+      const subtitleUrl = resolveSubtitleUrl(
+        selected.subtitleUrl || selected.url
+      );
+      if (!subtitleUrl) {
+        setCurrentSubtitleTrack(null);
+        return;
+      }
       setCurrentSubtitleTrack({
-        url: selected.subtitleUrl || selected.url,
+        url: subtitleUrl,
         label: selected.language || selected.languageCode || "Subtitle",
         lang:
           selected.languageCode ||
@@ -445,68 +553,95 @@ export default function Stream() {
     }
   }, [availableSubtitles, selectedSubtitleLanguage, subtitleEnabled]);
 
-  const convertSrtToVtt = (srtText) => {
-    // Basic SRT -> WebVTT conversion: replace comma in timestamps and prepend header
-    const body = srtText
-      .replace(/\r+/g, "")
-      .split("\n")
-      .map((line) => line.trimEnd())
-      .join("\n")
-      .replace(/(\d\d:\d\d:\d\d),(\d\d\d)/g, "$1.$2");
-    return `WEBVTT\n\n${body}`;
+  // Utility: clear all text tracks on the video element
+  const clearVideoTextTracks = () => {
+    const v = videoRef.current;
+    if (!v || !v.textTracks) return;
+    const tracks = Array.from(v.textTracks);
+    tracks.forEach((t) => {
+      t.mode = "disabled";
+      if (t.cues) {
+        Array.from(t.cues).forEach((cue) => {
+          try {
+            t.removeCue(cue);
+          } catch (_) {
+            /* ignore */
+          }
+        });
+      }
+    });
   };
 
-  // Prepare renderable subtitle track (convert SRT to VTT blob if needed)
+  // Resolve subtitle URL (proxy + SRT->VTT conversion)
   useEffect(() => {
-    let cancelled = false;
-    const cleanupBlob = () => {
-      if (subtitleBlobUrlRef.current) {
-        URL.revokeObjectURL(subtitleBlobUrlRef.current);
-        subtitleBlobUrlRef.current = null;
-      }
-    };
-
+    if (!subtitleEnabled) {
+      setSubtitleRenderUrl("");
+      clearVideoTextTracks();
+    }
+    // Cleanup previous blob URL
+    if (subtitleBlobUrlRef.current) {
+      URL.revokeObjectURL(subtitleBlobUrlRef.current);
+      subtitleBlobUrlRef.current = null;
+    }
     if (!subtitleEnabled || !currentSubtitleTrack?.url) {
-      cleanupBlob();
-      setSubtitleRenderTrack(null);
+      setSubtitleRenderUrl("");
       return;
     }
 
-    const srcUrl = currentSubtitleTrack.url;
-    const isSrt = /\.srt(\?|$)/i.test(srcUrl);
-
-    if (!isSrt) {
-      cleanupBlob();
-      setSubtitleRenderTrack({ ...currentSubtitleTrack, renderUrl: srcUrl });
-      return;
-    }
-
-    (async () => {
+    const load = async () => {
       try {
-        const res = await fetch(srcUrl);
-        const text = await res.text();
-        if (cancelled) return;
-        const vtt = convertSrtToVtt(text);
-        cleanupBlob();
-        const blob = new Blob([vtt], { type: "text/vtt" });
-        const objUrl = URL.createObjectURL(blob);
-        subtitleBlobUrlRef.current = objUrl;
-        if (!cancelled) {
-          setSubtitleRenderTrack({
-            ...currentSubtitleTrack,
-            renderUrl: objUrl,
-          });
+        // Clear any existing tracks/cues before loading a new one
+        clearVideoTextTracks();
+        const url = currentSubtitleTrack.url;
+        const isSrt = /\.srt(\?|#|$)/i.test(url);
+        if (!isSrt) {
+          setSubtitleRenderUrl(url);
+          return;
         }
-      } catch (_) {
-        if (!cancelled) setSubtitleRenderTrack(null);
+        const res = await fetch(url, { credentials: "include" }).catch(
+          () => null
+        );
+        if (!res || !res.ok) {
+          setSubtitleRenderUrl("");
+          return;
+        }
+        const srtText = await res.text();
+        const vtt = convertSrtToVtt(srtText);
+        const blob = new Blob([vtt], { type: "text/vtt" });
+        const blobUrl = URL.createObjectURL(blob);
+        subtitleBlobUrlRef.current = blobUrl;
+        setSubtitleRenderUrl(blobUrl);
+      } catch (err) {
+        setSubtitleRenderUrl("");
       }
-    })();
-
-    return () => {
-      cancelled = true;
-      cleanupBlob();
     };
+    load();
   }, [subtitleEnabled, currentSubtitleTrack]);
+
+  // Change <track> key whenever render URL changes to force reload
+  useEffect(() => {
+    clearVideoTextTracks();
+    setSubtitleTrackKey((k) => k + 1);
+  }, [subtitleRenderUrl]);
+
+  // Adjust cues to sit a bit higher and center-align to avoid control bar overlap
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    const tracks = Array.from(v.textTracks || []);
+    tracks.forEach((t) => {
+      Array.from(t.cues || []).forEach((cue) => {
+        try {
+          cue.line = -4; // move up
+          cue.align = "center";
+          cue.position = 50;
+          cue.size = 90;
+        } catch (_) {
+          /* ignore */
+        }
+      });
+    });
+  }, [subtitleRenderUrl, subtitleTrackKey, subtitleEnabled]);
 
   // Seek to startPosition when video loads
   useEffect(() => {
@@ -586,7 +721,7 @@ export default function Stream() {
       if (res?.availableSubtitles)
         setAvailableSubtitles(res.availableSubtitles);
       if (res?.streamingUrl) {
-        setVideoSrc(res.streamingUrl);
+        setVideoSrc(toCdnProxy(res.streamingUrl));
         // Reload video source to apply new quality/subtitle
         const v = videoRef.current;
         if (v) {
@@ -899,6 +1034,21 @@ export default function Stream() {
     return () => clearHideUiTimer();
   }, []);
 
+  // Ensure the active text track is showing and disable others to avoid blank/subtle glitches
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    const tracks = Array.from(v.textTracks || []);
+    if (!tracks.length) return;
+
+    tracks.forEach((t, idx) => {
+      // Keep only the last-added track "showing" to avoid multiple active tracks
+      const isActive =
+        subtitleEnabled && currentSubtitleTrack && idx === tracks.length - 1;
+      t.mode = isActive ? "showing" : "disabled";
+    });
+  }, [subtitleEnabled, currentSubtitleTrack?.url]);
+
   // Ratings state and effects
   const [userRating, setUserRating] = useState(null);
   const [userStars, setUserStars] = useState(3); // Mặc định 3 sao
@@ -1164,11 +1314,12 @@ export default function Stream() {
               `}</style>
               <video
                 ref={videoRef}
-                src={
+                src={toCdnProxy(
                   (videoSrc || movie?.streamingUrl || movie?.videoUrl) ??
-                  undefined
-                }
-                poster={movie?.backdrop || movie?.thumb}
+                    undefined
+                )}
+                poster={toCdnProxy(movie?.backdrop || movie?.thumb)}
+                crossOrigin="anonymous"
                 style={{
                   position: "absolute",
                   inset: 0,
@@ -1208,15 +1359,16 @@ export default function Stream() {
                     }
                   }
                 }}
-                crossOrigin="anonymous"
               >
-                {subtitleEnabled && subtitleRenderTrack?.renderUrl && (
+                {subtitleEnabled && subtitleRenderUrl && (
                   <track
-                    key={`${subtitleRenderTrack.renderUrl}-${subtitleRenderTrack.lang}`}
+                    key={`${subtitleTrackKey}-${subtitleRenderUrl}-${
+                      currentSubtitleTrack?.lang || "sub"
+                    }`}
                     kind="subtitles"
-                    src={subtitleRenderTrack.renderUrl}
-                    srcLang={subtitleRenderTrack.lang}
-                    label={subtitleRenderTrack.label}
+                    src={subtitleRenderUrl}
+                    srcLang={currentSubtitleTrack?.lang}
+                    label={currentSubtitleTrack?.label}
                     default
                   />
                 )}

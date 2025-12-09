@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Box,
   Container,
@@ -61,6 +61,7 @@ import {
   ViewModule as ViewModuleIcon,
   TheaterComedy as TheaterComedyIcon,
   Category as CategoryIcon,
+  ClosedCaption as ClosedCaptionIcon,
 } from "@mui/icons-material";
 import * as adminAPI from "../api/admin";
 import AdminRoute from "../components/AdminRoute";
@@ -1622,6 +1623,13 @@ function MovieViewForm({ movie, onClose }) {
   const [movieDetails, setMovieDetails] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [subtitleUploading, setSubtitleUploading] = useState(false);
+  const [subtitleError, setSubtitleError] = useState("");
+  const [subtitleLang, setSubtitleLang] = useState({
+    code: "vi",
+    name: "Vietnamese",
+    isDefault: true,
+  });
 
   useEffect(() => {
     loadMovieDetails();
@@ -1642,6 +1650,30 @@ function MovieViewForm({ movie, onClose }) {
       setError(err.message || "Failed to load movie details");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSubtitleSelect = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file || !movie?.id) return;
+    setSubtitleError("");
+    setSubtitleUploading(true);
+    try {
+      await adminAPI.uploadMovieSubtitle(movie.id, file, {
+        languageCode: subtitleLang.code || "vi",
+        languageName: subtitleLang.name || "Vietnamese",
+        isDefault:
+          typeof subtitleLang.isDefault === "boolean"
+            ? subtitleLang.isDefault
+            : true,
+      });
+      await loadMovieDetails();
+    } catch (err) {
+      setSubtitleError(err?.message || "Failed to upload subtitle");
+    } finally {
+      setSubtitleUploading(false);
+      // clear file input
+      event.target.value = "";
     }
   };
 
@@ -1886,7 +1918,16 @@ function MovieViewForm({ movie, onClose }) {
                   }}
                 >
                   <Typography variant="h6" color="success.main">
-                    {movieDetails?.subtitleUrl ? "✓" : "✗"}
+                    {Boolean(
+                      movieDetails?.subtitleUrl ||
+                        movieDetails?.subtitle ||
+                        movieDetails?.subtitleFile ||
+                        movieDetails?.subtitlePath ||
+                        (Array.isArray(movieDetails?.subtitles) &&
+                          movieDetails.subtitles.length > 0)
+                    )
+                      ? "✓"
+                      : "✗"}
                   </Typography>
                   <Typography variant="caption">Subtitle</Typography>
                 </Box>
@@ -2515,21 +2556,6 @@ function MovieCreationForm({
               <input
                 accept="video/*"
                 style={{ display: "none" }}
-                id="video-upload"
-                type="file"
-                onChange={handleFileChange("video")}
-              />
-              <label htmlFor="video-upload">
-                <Button variant="outlined" component="span" fullWidth>
-                  {files.video ? files.video.name : "Upload Video"}
-                </Button>
-              </label>
-            </Grid>
-
-            <Grid item xs={12} md={4}>
-              <input
-                accept="video/*"
-                style={{ display: "none" }}
                 id="trailer-upload"
                 type="file"
                 onChange={handleFileChange("trailer")}
@@ -2541,20 +2567,22 @@ function MovieCreationForm({
               </label>
             </Grid>
 
-            <Grid item xs={12} md={4}>
-              <input
-                accept=".srt,.vtt,.ass,.sub"
-                style={{ display: "none" }}
-                id="subtitle-upload"
-                type="file"
-                onChange={handleFileChange("subtitle")}
-              />
-              <label htmlFor="subtitle-upload">
-                <Button variant="outlined" component="span" fullWidth>
-                  {files.subtitle ? files.subtitle.name : "Upload Subtitle"}
-                </Button>
-              </label>
-            </Grid>
+            {isEdit && (
+              <Grid item xs={12} md={4}>
+                <input
+                  accept="video/*"
+                  style={{ display: "none" }}
+                  id="video-upload"
+                  type="file"
+                  onChange={handleFileChange("video")}
+                />
+                <label htmlFor="video-upload">
+                  <Button variant="outlined" component="span" fullWidth>
+                    {files.video ? files.video.name : "Upload Video"}
+                  </Button>
+                </label>
+              </Grid>
+            )}
 
             <Grid item xs={12} md={6}>
               <TextField
@@ -2692,6 +2720,9 @@ function MoviesManagement() {
   const [totalElements, setTotalElements] = useState(0);
   const [usePagination, setUsePagination] = useState(true); // Toggle pagination
   const [allMovies, setAllMovies] = useState([]); // Store all movies for client-side pagination
+  const subtitleInputRef = useRef(null);
+  const [subtitleUploadMovieId, setSubtitleUploadMovieId] = useState(null);
+  const [subtitleUploadError, setSubtitleUploadError] = useState("");
 
   useEffect(() => {
     loadMovies();
@@ -2788,6 +2819,36 @@ function MoviesManagement() {
     }
   };
 
+  const triggerSubtitleUpload = (movie) => {
+    setSubtitleUploadError("");
+    setSubtitleUploadMovieId(movie?.id || null);
+    if (subtitleInputRef.current) {
+      subtitleInputRef.current.value = "";
+      subtitleInputRef.current.click();
+    }
+  };
+
+  const handleSubtitleUpload = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file || !subtitleUploadMovieId) return;
+    try {
+      setSubtitleUploadError("");
+      await adminAPI.uploadMovieSubtitle(subtitleUploadMovieId, file, {
+        languageCode: "vi",
+        languageName: "Vietnamese",
+        isDefault: true,
+      });
+      await loadMovies();
+    } catch (err) {
+      setSubtitleUploadError(
+        err?.message || "Upload subtitle failed. Please try again."
+      );
+    } finally {
+      event.target.value = "";
+      setSubtitleUploadMovieId(null);
+    }
+  };
+
   const handlePageChange = (event, newPage) => {
     setPage(newPage - 1); // MUI Pagination uses 1-based indexing
   };
@@ -2879,6 +2940,18 @@ function MoviesManagement() {
 
   return (
     <Box>
+      <input
+        ref={subtitleInputRef}
+        type="file"
+        accept=".srt,.vtt,.ass,.sub"
+        style={{ display: "none" }}
+        onChange={handleSubtitleUpload}
+      />
+      {subtitleUploadError && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {subtitleUploadError}
+        </Alert>
+      )}
       <Box
         sx={{
           display: "flex",
@@ -3039,6 +3112,15 @@ function MoviesManagement() {
                       <EditIcon />
                     </IconButton>
                   </Tooltip>
+                  <Tooltip title="Upload Subtitle">
+                    <IconButton
+                      size="small"
+                      color="info"
+                      onClick={() => triggerSubtitleUpload(movie)}
+                    >
+                      <ClosedCaptionIcon />
+                    </IconButton>
+                  </Tooltip>
                   <Tooltip title="Delete Movie">
                     <IconButton
                       size="small"
@@ -3146,6 +3228,15 @@ function MoviesManagement() {
                             onClick={() => handleEditMovie(movie)}
                           >
                             <EditIcon />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Upload Subtitle">
+                          <IconButton
+                            size="small"
+                            color="info"
+                            onClick={() => triggerSubtitleUpload(movie)}
+                          >
+                            <ClosedCaptionIcon />
                           </IconButton>
                         </Tooltip>
                         <Tooltip title="Delete Movie">

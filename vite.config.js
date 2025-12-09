@@ -16,11 +16,22 @@ export default defineConfig({
         changeOrigin: true,
         secure: true,
       },
+      "/subtitles": {
+        target: "https://cdn.phimnhalam.website",
+        changeOrigin: true,
+        secure: true,
+      },
       "/ai": {
         target: "http://localhost:8000",
         changeOrigin: true,
         secure: false,
         rewrite: (path) => path.replace(/^\/ai/, ""),
+      },
+      "/cdn": {
+        target: "https://cdn.phimnhalam.website",
+        changeOrigin: true,
+        secure: true,
+        rewrite: (path) => path.replace(/^\/cdn/, ""),
       },
     },
   },

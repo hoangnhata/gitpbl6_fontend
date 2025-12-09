@@ -105,7 +105,7 @@ export default function Favorites() {
         active: true,
       },
       { label: "Danh sách", icon: <List />, to: "/watchlist" },
-      { label: "Xem tiếp", icon: <History />, to: "/account" },
+      { label: "Xem tiếp", icon: <History />, to: "/watch-history" },
       { label: "Thông báo", icon: <Notifications />, to: "/account" },
       { label: "Tài khoản", icon: <AccountCircle />, to: "/account" },
     ],
