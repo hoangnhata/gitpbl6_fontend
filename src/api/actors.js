@@ -47,30 +47,64 @@ export function listActors({ q = "", page = 0, size = 20 } = {}) {
   return jsonFetch(`/actors?${params.toString()}`, { method: "GET" });
 }
 
-export async function recognizeActorsByImage(file, { topK = 12 } = {}) {
+export async function recognizeActorsByImage(
+  file,
+  { topK = 12, minScore = 0.3, maxResults = 0 } = {}
+) {
   if (!file) throw new Error("image file is required");
   const form = new FormData();
   form.append("image", file);
   form.append("topK", String(topK));
-  
+  form.append("minScore", String(minScore));
+  form.append("maxResults", String(maxResults));
+  form.append("debug", "0");
+
   const url = buildAiUrl(`/actors/recognize`);
   // eslint-disable-next-line no-console
   console.log("[AI] Sending request to:", url);
   // eslint-disable-next-line no-console
-  console.log("[AI] AI_BASE_URL from env:", import.meta?.env?.VITE_AI_BASE_URL || "not set (using /ai)");
-  
-  const response = await fetch(url, {
-    method: "POST",
-    body: form,
-  });
-  
+  console.log(
+    "[AI] AI_BASE_URL from env:",
+    import.meta?.env?.VITE_AI_BASE_URL || "not set (using /ai)"
+  );
   // eslint-disable-next-line no-console
-  console.log("[AI] Response status:", response.status, response.statusText);
-  
-  const payload = await handleResponse(response);
-  // eslint-disable-next-line no-console
-  console.log("[AI] recognizeActorsByImage response:", payload);
-  return payload;
+  console.log(
+    "[AI] Request params: topK=",
+    topK,
+    "minScore=",
+    minScore,
+    "maxResults=",
+    maxResults
+  );
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 seconds timeout
+
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      body: form,
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    // eslint-disable-next-line no-console
+    console.log("[AI] Response status:", response.status, response.statusText);
+
+    const payload = await handleResponse(response);
+    // eslint-disable-next-line no-console
+    console.log("[AI] recognizeActorsByImage response:", payload);
+    return payload;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error.name === "AbortError") {
+      throw new Error(
+        "Request timeout: AI xử lý quá lâu. Vui lòng thử lại với ảnh khác."
+      );
+    }
+    throw error;
+  }
 }
 
 export function getActorById(actorId) {
@@ -157,4 +191,3 @@ export async function searchActorsByNames(names = []) {
   }
   return results;
 }
-
